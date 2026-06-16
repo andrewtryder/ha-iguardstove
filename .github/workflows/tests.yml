@@ -28,7 +28,7 @@ jobs:
           allow-prereleases: true
 
       - name: Install dependencies
-        run: pip install -r requirements_test.txt
+        run: pip install -r requirements.txt -r requirements_test.txt
 
       - name: Run tests
         run: pytest tests/ --no-cov
