@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/andrewtryder/ha-iguardstove/compare/v1.0.1...v1.0.2) (2026-06-16)
+
+
+### Bug Fixes
+
+* rebuild icons with solid white background; add logo to README ([c55ac8a](https://github.com/andrewtryder/ha-iguardstove/commit/c55ac8abb9e8c4e17e341fee96964f448ded8923))
+
 ## [1.0.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.0.0...v1.0.1) (2026-06-16)
 
 
