@@ -58,6 +58,17 @@ DASHBOARD_HTML = """
 </html>
 """
 
+DASHBOARD_MISSING_TITLE_HTML = """
+<!doctype html>
+<html>
+<body>
+  <div class="stove_line">
+    <a href="/devices/AABBCCDD1234/">View</a>
+  </div>
+</body>
+</html>
+"""
+
 DEVICE_PAGE_UNLOCKED_HTML = """
 <!doctype html>
 <html>
@@ -285,6 +296,26 @@ async def test_async_get_devices_empty_dashboard(
         client = IGuardStoveClient(session, "user@example.com", "secret")
         devices = await client.async_get_devices()
         assert devices == []
+
+
+@pytest.mark.asyncio
+async def test_async_get_devices_missing_title(
+    aresponses,
+) -> None:
+    """Test that missing title defaults to iGuardStove."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=DASHBOARD_MISSING_TITLE_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        devices = await client.async_get_devices()
+        assert len(devices) == 1
+        assert devices[0]["device_id"] == "AABBCCDD1234"
+        assert devices[0]["device_name"] == "iGuardStove"
 
 
 # ---------------------------------------------------------------------------
