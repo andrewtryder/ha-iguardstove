@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your iGuardStove account",
+        "description": "Enter your iGuardFire account credentials. All stoves on the account will be discovered automatically.",
+        "data": {
+          "username": "Username (Email)",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to iGuardFire. Check your network connection.",
+      "invalid_auth": "Invalid credentials. Please check your username and password.",
+      "unknown": "Unexpected error. Check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This iGuardStove account is already configured."
+    }
+  }
+}
