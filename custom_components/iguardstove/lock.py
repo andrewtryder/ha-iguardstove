@@ -8,8 +8,6 @@ lock/unlock endpoints, so both lock() and unlock() call the same toggle.
 The coordinator is refreshed immediately after to reflect the new state.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 

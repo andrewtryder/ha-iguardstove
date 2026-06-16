@@ -1,7 +1,5 @@
 """Tests for the iGuardStove API client."""
 
-from __future__ import annotations
-
 import aiohttp
 import pytest
 

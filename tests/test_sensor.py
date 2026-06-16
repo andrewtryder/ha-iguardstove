@@ -1,7 +1,5 @@
 """Tests for iGuardStove sensor entities."""
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME

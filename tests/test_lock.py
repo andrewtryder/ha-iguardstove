@@ -1,7 +1,5 @@
 """Tests for iGuardStove lock entity."""
 
-from __future__ import annotations
-
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
