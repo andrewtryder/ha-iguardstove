@@ -86,5 +86,5 @@ class IGuardStoveNeedsAttentionBinarySensor(IGuardStoveEntity, BinarySensorEntit
         data = self._device_data
         if not data:
             return None
-        status = (data.get("status") or "").lower()
+        status = (data.get("status_raw") or "").lower()
         return "stove is off" not in status
