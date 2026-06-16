@@ -13,9 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.iguardstove.client import CannotConnect, InvalidAuth
 from custom_components.iguardstove.const import DOMAIN
 
-MOCK_DEVICES = [
-    {"device_id": "AABBCCDD1234", "device_name": "Guest House Stove"}
-]
+MOCK_DEVICES = [{"device_id": "AABBCCDD1234", "device_name": "Guest House Stove"}]
 
 
 async def test_flow_user_init(hass: HomeAssistant) -> None:

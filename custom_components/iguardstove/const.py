@@ -43,23 +43,19 @@ STATUS_MAP: dict[str, str] = {
     "stove is off": "Stove Off",
     "stove is on": "Stove On",
     "stove has been shut off": "Stove Shut Off",
-
     # Lock states
     "locked out for the night": "Night Lock",
     "locked out": "Locked Out",
     "manually locked": "Manually Locked",
     "caregiver locked": "Caregiver Locked",
-
     # Timer / countdown
     "countdown": "Countdown Active",
     "manual timer": "Manual Timer",
-
     # Motion / auto shut-off
     "no motion": "No Motion Detected",
     "motion detected": "Motion Detected",
     "shut off due to inactivity": "Auto Shut Off",
     "automatically shut off": "Auto Shut Off",
-
     # Alert / problem states
     "emergency": "Emergency",
     "temperature alert": "Temperature Alert",

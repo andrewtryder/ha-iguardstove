@@ -12,8 +12,8 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.iguardstove.client import (
     CannotConnect,
-    InvalidAuth,
     IGuardStoveException,
+    InvalidAuth,
 )
 from custom_components.iguardstove.const import DOMAIN
 
