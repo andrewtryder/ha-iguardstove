@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.0.2...v1.1.0) (2026-06-16)
+
+
+### Features
+
+* **brand:** update brand icons ([97e4d1d](https://github.com/andrewtryder/ha-iguardstove/commit/97e4d1dc3dd8533bbff6de4e6a19576fabafb2ad))
+* **brand:** update brand icons ([ba68630](https://github.com/andrewtryder/ha-iguardstove/commit/ba68630ad05d23d23943d7cdc5648282dd2903b9))
+
 ## [1.0.2](https://github.com/andrewtryder/ha-iguardstove/compare/v1.0.1...v1.0.2) (2026-06-16)
 
 
