@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from typing import Any
+import urllib.parse
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -356,7 +357,13 @@ class IGuardStoveClient:
             raise CannotConnect("Network error fetching device page for lock") from ex
 
         soup = BeautifulSoup(html, "html.parser")
-        form = soup.find("form", {"id": "unlock"})
+        form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
+        if not form:
+            # Fallback: check any form that has a button with lock/unlock names
+            for f in soup.find_all("form"):
+                if f.find("button", {"name": ["lock", "unlock"]}):
+                    form = f
+                    break
         if not form:
             raise CannotConnect("Lock toggle form not found on device page")
 
@@ -378,12 +385,20 @@ class IGuardStoveClient:
             "csrfmiddlewaretoken": csrf_token,
             button_name: button_value,
         }
+        
+        # Resolve target POST URL from the form's action attribute
+        action = form.get("action")
+        if action:
+            post_url = urllib.parse.urljoin(url, action)
+        else:
+            post_url = url
+            
         post_headers = {**self._headers, "Referer": url}
 
-        _LOGGER.debug("POSTing lock toggle for device %s", device_id)
+        _LOGGER.debug("POSTing lock toggle for device %s to %s", device_id, post_url)
         try:
             async with self._session.post(
-                url, data=payload, headers=post_headers, allow_redirects=True
+                post_url, data=payload, headers=post_headers, allow_redirects=True
             ) as resp_lock:
                 if resp_lock.status != 200:
                     raise CannotConnect(

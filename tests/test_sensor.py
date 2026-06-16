@@ -177,34 +177,4 @@ async def test_temperature_sensor_none(hass: HomeAssistant) -> None:
     """Test the temperature sensor is unknown when value is None."""
     await _setup_integration(hass, DEVICE_DATA_NO_DATA)
     state = hass.states.get("sensor.guest_house_stove_temperature")
-    assert state is not None
-    assert state.state == "unknown"
-
-
-# ---------------------------------------------------------------------------
-# Fires prevented sensor
-# ---------------------------------------------------------------------------
-
-
-async def test_fires_prevented_sensor(hass: HomeAssistant) -> None:
-    """Test the fires prevented sensor shows the correct count."""
-    await _setup_integration(hass, DEVICE_DATA_NORMAL)
-    state = hass.states.get("sensor.guest_house_stove_potential_fires_prevented")
-    assert state is not None
-    assert state.state == "3"
-
-
-async def test_fires_prevented_sensor_zero(hass: HomeAssistant) -> None:
-    """Test the fires prevented sensor shows 0."""
-    await _setup_integration(hass, DEVICE_DATA_CELSIUS)
-    state = hass.states.get("sensor.guest_house_stove_potential_fires_prevented")
-    assert state is not None
-    assert state.state == "0"
-
-
-async def test_fires_prevented_sensor_none(hass: HomeAssistant) -> None:
-    """Test the fires prevented sensor is unknown when data is absent."""
-    await _setup_integration(hass, DEVICE_DATA_NO_DATA)
-    state = hass.states.get("sensor.guest_house_stove_potential_fires_prevented")
-    assert state is not None
     assert state.state == "unknown"

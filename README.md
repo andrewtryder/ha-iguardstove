@@ -21,9 +21,7 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 | **Status** | `sensor` | Human-readable stove status (e.g. "iGuardStove is LOCKED OUT for the night") |
 | **Last Check-In** | `sensor` (diagnostic) | Relative time since the device last phoned home (e.g. "24 minutes ago") |
 | **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
-| **Potential Fires Prevented** | `sensor` | Cumulative count of automatic shut-offs |
 | **Locked** | `binary_sensor` | `ON` when stove is in lockout, `OFF` when available |
-| **Needs Attention** | `binary_sensor` (problem) | `ON` when stove is NOT in the "stove is off" state — mirrors the original multiscrape binary sensor |
 | **Stove Lock** | `lock` | Lock/unlock the stove from the HA UI, automations, or voice assistants |
 
 All stoves registered to your account are discovered automatically at setup time.
@@ -69,9 +67,7 @@ The lock toggle (`lock` entity) POSTs to the same device page form that the **Lo
 sensor.guest_house_stove_status
 sensor.guest_house_stove_last_check_in
 sensor.guest_house_stove_temperature
-sensor.guest_house_stove_potential_fires_prevented
 binary_sensor.guest_house_stove_locked
-binary_sensor.guest_house_stove_needs_attention
 lock.guest_house_stove_stove_lock
 ```
 
@@ -85,9 +81,7 @@ If you were previously using the `multiscrape` blueprint, remove those entries f
 |---|---|
 | `sensor.guest_house_stove_status` | `sensor.guest_house_stove_status` |
 | `sensor.guest_house_stove_last_check_in` | `sensor.guest_house_stove_last_check_in` |
-| `binary_sensor.guest_house_stove_attention` | `binary_sensor.guest_house_stove_needs_attention` |
 | _(not available)_ | `sensor.guest_house_stove_temperature` |
-| _(not available)_ | `sensor.guest_house_stove_potential_fires_prevented` |
 | _(not available)_ | `lock.guest_house_stove_stove_lock` |
 
 ---
