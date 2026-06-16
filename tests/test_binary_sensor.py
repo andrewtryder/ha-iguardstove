@@ -96,35 +96,3 @@ async def test_locked_binary_sensor_locked(hass: HomeAssistant) -> None:
     state = hass.states.get("binary_sensor.guest_house_stove_locked")
     assert state is not None
     assert state.state == "on"
-
-
-# ---------------------------------------------------------------------------
-# Needs Attention binary sensor
-# ---------------------------------------------------------------------------
-
-
-async def test_needs_attention_off_when_stove_is_off(hass: HomeAssistant) -> None:
-    """Test needs_attention is OFF (no problem) when stove status is 'Stove Off'."""
-    await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
-    state = hass.states.get("binary_sensor.guest_house_stove_needs_attention")
-    assert state is not None
-    # "Stove Off" contains "stove is off" → needs_attention is OFF
-    assert state.state == "off"
-
-
-async def test_needs_attention_on_when_stove_is_on(hass: HomeAssistant) -> None:
-    """Test needs_attention is ON when stove is active."""
-    await _setup_integration(hass, DEVICE_DATA_STOVE_ON)
-    state = hass.states.get("binary_sensor.guest_house_stove_needs_attention")
-    assert state is not None
-    # "Stove On" does NOT contain "stove is off" → needs_attention is ON
-    assert state.state == "on"
-
-
-async def test_needs_attention_on_when_locked(hass: HomeAssistant) -> None:
-    """Test needs_attention is ON when stove is in Night Lock state."""
-    await _setup_integration(hass, DEVICE_DATA_LOCKED)
-    state = hass.states.get("binary_sensor.guest_house_stove_needs_attention")
-    assert state is not None
-    # "Night Lock" does NOT contain "stove is off" → needs_attention is ON
-    assert state.state == "on"

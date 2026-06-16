@@ -38,7 +38,6 @@ async def async_setup_entry(
                 IGuardStoveStatusSensor(coordinator, device_id),
                 IGuardStoveLastCheckinSensor(coordinator, device_id),
                 IGuardStoveTemperatureSensor(coordinator, device_id),
-                IGuardStoveFiresPreventedSensor(coordinator, device_id),
             ]
         )
 
@@ -139,28 +138,3 @@ class IGuardStoveTemperatureSensor(IGuardStoveEntity, SensorEntity):
         if not data:
             return None
         return data.get("temperature")
-
-
-class IGuardStoveFiresPreventedSensor(IGuardStoveEntity, SensorEntity):
-    """Sensor reporting cumulative automatic shut-offs (potential fires prevented)."""
-
-    _attr_icon = "mdi:fire-off"
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-
-    def __init__(
-        self,
-        coordinator: IGuardStoveDataUpdateCoordinator,
-        device_id: str,
-    ) -> None:
-        """Initialize fires prevented sensor."""
-        super().__init__(coordinator, device_id)
-        self._attr_name = "Potential Fires Prevented"
-        self._attr_unique_id = f"{device_id}_fires_prevented"
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the cumulative shut-off count."""
-        data = self._device_data
-        if not data:
-            return None
-        return data.get("fires_prevented")
