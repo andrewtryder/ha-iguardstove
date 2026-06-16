@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 import urllib.parse
+from typing import Any
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -24,6 +24,13 @@ from .const import (
     STATUS_MAP,
     USER_AGENT,
 )
+
+# Pre-compiled regular expressions for performance
+DEVICE_URL_RE = re.compile(r"^/devices/([A-F0-9]+)/$")
+CHECKIN_PREFIX_RE = re.compile(
+    r"^iGuardStove\s+Last\s+Checked\s+In:\s*", flags=re.IGNORECASE
+)
+TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -174,7 +181,7 @@ class IGuardStoveClient:
         # Each device card links to /devices/<device_id>/
         for link in soup.find_all("a", href=True):
             href: str = link["href"]
-            m = re.match(r"^/devices/([A-F0-9]+)/$", href)
+            m = DEVICE_URL_RE.match(href)
             if m:
                 device_id = m.group(1)
                 # Look for a stove title in the nearest ancestor stove_line block
@@ -275,12 +282,7 @@ class IGuardStoveClient:
         if checkin_el:
             raw = checkin_el.get_text(strip=True)
             # Strip the label prefix
-            raw = re.sub(
-                r"^iGuardStove\s+Last\s+Checked\s+In:\s*",
-                "",
-                raw,
-                flags=re.IGNORECASE,
-            )
+            raw = CHECKIN_PREFIX_RE.sub("", raw)
             data["last_check_in"] = raw
         else:
             data["last_check_in"] = None
@@ -306,7 +308,7 @@ class IGuardStoveClient:
 
             elif "temperature" in title_text:
                 # Value looks like "81°F" or "27°C"
-                m = re.match(r"([\d.]+)\s*(°[FC]?)?", value_text)
+                m = TEMP_RE.match(value_text)
                 if m:
                     try:
                         data["temperature"] = float(m.group(1))
@@ -318,7 +320,7 @@ class IGuardStoveClient:
         _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
         return data
 
-    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:
+    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:  # noqa: C901
         """Toggle the stove lock state via the device page form.
 
         The form (id='unlock') POSTs to the current device URL with only the
@@ -371,14 +373,14 @@ class IGuardStoveClient:
             "csrfmiddlewaretoken": csrf_token,
             button_name: button_value,
         }
-        
+
         # Resolve target POST URL from the form's action attribute
         action = form.get("action")
         if action:
             post_url = urllib.parse.urljoin(url, action)
         else:
             post_url = url
-            
+
         post_headers = {**self._headers, "Referer": url}
 
         _LOGGER.debug("POSTing lock toggle for device %s to %s", device_id, post_url)
