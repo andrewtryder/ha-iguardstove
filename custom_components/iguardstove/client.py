@@ -1,11 +1,9 @@
 """iGuardStove web client - handles login and scraping of stove data."""
 
-from __future__ import annotations
-
 import logging
 import re
-from typing import Any
 import urllib.parse
+from typing import Any
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -318,7 +316,7 @@ class IGuardStoveClient:
         _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
         return data
 
-    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:
+    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:  # noqa: C901
         """Toggle the stove lock state via the device page form.
 
         The form (id='unlock') POSTs to the current device URL with only the
@@ -371,14 +369,14 @@ class IGuardStoveClient:
             "csrfmiddlewaretoken": csrf_token,
             button_name: button_value,
         }
-        
+
         # Resolve target POST URL from the form's action attribute
         action = form.get("action")
         if action:
             post_url = urllib.parse.urljoin(url, action)
         else:
             post_url = url
-            
+
         post_headers = {**self._headers, "Referer": url}
 
         _LOGGER.debug("POSTing lock toggle for device %s to %s", device_id, post_url)
