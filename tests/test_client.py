@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import aiohttp
 import pytest
-from aresponses import ResponsesMockServer
 
 from custom_components.iguardstove.client import (
     CannotConnect,
@@ -134,7 +133,10 @@ def test_normalize_status_known_patterns() -> None:
     """Test all known STATUS_MAP patterns are matched correctly."""
     assert normalize_status("iGuardStove is off") == "Stove Off"
     assert normalize_status("iGuardStove is on") == "Stove On"
-    assert normalize_status("iGuardStove has been shut off automatically") == "Stove Shut Off"
+    assert (
+        normalize_status("iGuardStove has been shut off automatically")
+        == "Stove Shut Off"
+    )
     assert normalize_status("iGuardStove was automatically shut off") == "Auto Shut Off"
     assert normalize_status("iGuardStove is LOCKED OUT for the night") == "Night Lock"
     assert normalize_status("iGuardStove is locked out") == "Locked Out"
@@ -161,7 +163,7 @@ def test_normalize_status_unknown_returns_raw() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_login_success(aresponses: ResponsesMockServer) -> None:
+async def test_async_login_success(aresponses) -> None:
     """Test successful login: GET csrf then POST and redirect to dashboard."""
     aresponses.add(
         PORTAL_HOST,
@@ -194,7 +196,7 @@ async def test_async_login_success(aresponses: ResponsesMockServer) -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_login_invalid_credentials(aresponses: ResponsesMockServer) -> None:
+async def test_async_login_invalid_credentials(aresponses) -> None:
     """Test login raises InvalidAuth when the portal returns an errorlist."""
     aresponses.add(
         PORTAL_HOST,
@@ -216,7 +218,7 @@ async def test_async_login_invalid_credentials(aresponses: ResponsesMockServer) 
 
 
 @pytest.mark.asyncio
-async def test_async_login_server_error(aresponses: ResponsesMockServer) -> None:
+async def test_async_login_server_error(aresponses) -> None:
     """Test login raises CannotConnect when the login page returns a 5xx."""
     aresponses.add(
         PORTAL_HOST,
@@ -232,7 +234,7 @@ async def test_async_login_server_error(aresponses: ResponsesMockServer) -> None
 
 
 @pytest.mark.asyncio
-async def test_async_login_no_csrf_token(aresponses: ResponsesMockServer) -> None:
+async def test_async_login_no_csrf_token(aresponses) -> None:
     """Test login raises CannotConnect when the CSRF token is missing."""
     aresponses.add(
         PORTAL_HOST,
@@ -253,7 +255,7 @@ async def test_async_login_no_csrf_token(aresponses: ResponsesMockServer) -> Non
 
 
 @pytest.mark.asyncio
-async def test_async_get_devices_success(aresponses: ResponsesMockServer) -> None:
+async def test_async_get_devices_success(aresponses) -> None:
     """Test device discovery parses links correctly."""
     aresponses.add(
         PORTAL_HOST, "/", "GET", aresponses.Response(text=DASHBOARD_HTML, status=200)
@@ -268,7 +270,9 @@ async def test_async_get_devices_success(aresponses: ResponsesMockServer) -> Non
 
 
 @pytest.mark.asyncio
-async def test_async_get_devices_empty_dashboard(aresponses: ResponsesMockServer) -> None:
+async def test_async_get_devices_empty_dashboard(
+    aresponses,
+) -> None:
     """Test that empty dashboard returns empty list."""
     aresponses.add(
         PORTAL_HOST,
@@ -346,7 +350,7 @@ def test_parse_device_page_missing_elements() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_get_device_data_success(aresponses: ResponsesMockServer) -> None:
+async def test_async_get_device_data_success(aresponses) -> None:
     """Test fetching and parsing device data end-to-end."""
     aresponses.add(
         PORTAL_HOST,
@@ -365,7 +369,7 @@ async def test_async_get_device_data_success(aresponses: ResponsesMockServer) ->
 
 @pytest.mark.asyncio
 async def test_async_get_device_data_server_error(
-    aresponses: ResponsesMockServer,
+    aresponses,
 ) -> None:
     """Test that a 500 response raises CannotConnect."""
     aresponses.add(
@@ -387,7 +391,7 @@ async def test_async_get_device_data_server_error(
 
 
 @pytest.mark.asyncio
-async def test_async_toggle_lock_success(aresponses: ResponsesMockServer) -> None:
+async def test_async_toggle_lock_success(aresponses) -> None:
     """Test that the lock toggle GETs the page for CSRF then POSTs successfully."""
     # First GET to retrieve CSRF token
     aresponses.add(
@@ -411,7 +415,7 @@ async def test_async_toggle_lock_success(aresponses: ResponsesMockServer) -> Non
 
 
 @pytest.mark.asyncio
-async def test_async_toggle_lock_post_failure(aresponses: ResponsesMockServer) -> None:
+async def test_async_toggle_lock_post_failure(aresponses) -> None:
     """Test that a non-200 POST raises CannotConnect."""
     aresponses.add(
         PORTAL_HOST,
@@ -433,15 +437,13 @@ async def test_async_toggle_lock_post_failure(aresponses: ResponsesMockServer) -
 
 
 @pytest.mark.asyncio
-async def test_async_toggle_lock_no_form(aresponses: ResponsesMockServer) -> None:
+async def test_async_toggle_lock_no_form(aresponses) -> None:
     """Test that CannotConnect is raised when the lock form is absent."""
     aresponses.add(
         PORTAL_HOST,
         "/devices/AABBCCDD1234/",
         "GET",
-        aresponses.Response(
-            text="<html><body>No form here</body></html>", status=200
-        ),
+        aresponses.Response(text="<html><body>No form here</body></html>", status=200),
     )
 
     async with aiohttp.ClientSession() as session:

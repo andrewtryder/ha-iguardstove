@@ -156,6 +156,7 @@ async def test_last_checkin_sensor_none(hass: HomeAssistant) -> None:
 async def test_temperature_sensor_fahrenheit(hass: HomeAssistant) -> None:
     """Test the temperature sensor in Fahrenheit."""
     from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
+
     hass.config.units = US_CUSTOMARY_SYSTEM
     await _setup_integration(hass, DEVICE_DATA_NORMAL)
     state = hass.states.get("sensor.guest_house_stove_temperature")
