@@ -263,16 +263,24 @@ class IGuardStoveClient:
         data["status_raw"] = raw_status           # always the exact portal text
         data["status"] = normalize_status(raw_status)  # clean label for the sensor
 
-        # Determine lock state from status icon:
-        # an <img class="lock"> inside the icon block
-        icon_block = soup.find(class_=SEL_STATUS_ICON)
-        if icon_block:
-            lock_img = icon_block.find("img", class_=SEL_LOCK_IMG)
-            data["is_locked"] = lock_img is not None
+        # Determine lock state:
+        # Check the form button name first as it is the most authoritative indicator of lock control state.
+        # If the button name is 'unlock', it means the next action is to unlock, so the device is currently locked.
+        form = soup.find("form", {"id": "unlock"})
+        button = form.find("button") if form else None
+        if button and button.get("name"):
+            data["is_locked"] = button.get("name") == "unlock"
         else:
-            # Fallback: look for "LOCKED OUT" in status text
-            status_text = (data.get("status") or "").lower()
-            data["is_locked"] = "locked" in status_text
+            # Fallback: Determine lock state from status icon:
+            # an <img class="lock"> inside the icon block
+            icon_block = soup.find(class_=SEL_STATUS_ICON)
+            if icon_block:
+                lock_img = icon_block.find("img", class_=SEL_LOCK_IMG)
+                data["is_locked"] = lock_img is not None
+            else:
+                # Fallback: look for "LOCKED OUT" in status text
+                status_text = (data.get("status") or "").lower()
+                data["is_locked"] = "locked" in status_text
 
         # Last check-in: strip the "iGuardStove Last Checked In:" prefix
         checkin_el = soup.find(class_=SEL_STOVE_DATE)
@@ -357,7 +365,19 @@ class IGuardStoveClient:
             raise CannotConnect("csrfmiddlewaretoken not found in lock form")
 
         csrf_token = csrf_input.get("value")
-        payload = {"csrfmiddlewaretoken": csrf_token}
+        
+        # Extract button name and value (e.g. name="lock", value="device_id" or name="unlock")
+        button = form.find("button")
+        if not button:
+            raise CannotConnect("Lock button not found inside form")
+        
+        button_name = button.get("name", "lock")
+        button_value = button.get("value", device_id)
+
+        payload = {
+            "csrfmiddlewaretoken": csrf_token,
+            button_name: button_value,
+        }
         post_headers = {**self._headers, "Referer": url}
 
         _LOGGER.debug("POSTing lock toggle for device %s", device_id)
