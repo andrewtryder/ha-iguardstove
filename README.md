@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="custom_components/iguardstove/brand/icon.png" alt="iGuardStove" width="120">
+</p>
+
 # ha-iguardstove
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -5,6 +9,7 @@
 [![License](https://img.shields.io/github/license/andrewtryder/ha-iguardstove)](LICENSE)
 
 A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.iguardstove.com) devices. Replaces the `multiscrape` blueprint approach with a first-class HA integration that auto-discovers all stoves on your account.
+
 
 ---
 
