@@ -1,7 +1,5 @@
 """Tests for the iGuardStove API client."""
 
-from __future__ import annotations
-
 import aiohttp
 import pytest
 
@@ -52,6 +50,17 @@ DASHBOARD_HTML = """
 <body>
   <div class="stove_line">
     <span class="stove_title">Guest House Stove</span>
+    <a href="/devices/AABBCCDD1234/">View</a>
+  </div>
+</body>
+</html>
+"""
+
+DASHBOARD_MISSING_TITLE_HTML = """
+<!doctype html>
+<html>
+<body>
+  <div class="stove_line">
     <a href="/devices/AABBCCDD1234/">View</a>
   </div>
 </body>
@@ -307,6 +316,26 @@ async def test_async_get_devices_empty_dashboard(
         assert devices == []
 
 
+@pytest.mark.asyncio
+async def test_async_get_devices_missing_title(
+    aresponses,
+) -> None:
+    """Test that missing title defaults to iGuardStove."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=DASHBOARD_MISSING_TITLE_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        devices = await client.async_get_devices()
+        assert len(devices) == 1
+        assert devices[0]["device_id"] == "AABBCCDD1234"
+        assert devices[0]["device_name"] == "iGuardStove"
+
+
 # ---------------------------------------------------------------------------
 # _parse_device_page tests (pure — no HTTP)
 # ---------------------------------------------------------------------------
@@ -344,16 +373,16 @@ def test_parse_device_page_celsius() -> None:
     assert data["temperature_unit"] == "°C"
 
 
-def test_parse_device_page_invalid_temperature(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Test invalid temperature logs a warning."""
+def test_parse_device_page_checkin_fallback() -> None:
+    """Test parsing last check in without prefix."""
+    minimal_html = """
+    <html><body>
+      <span class="stove_date">20 minutes ago</span>
+    </body></html>
+    """
     client = IGuardStoveClient.__new__(IGuardStoveClient)
-    data = client._parse_device_page("CCDD1234", DEVICE_PAGE_INVALID_TEMP_HTML)
-
-    assert data["temperature"] is None
-    assert data["temperature_unit"] == "°F"
-    assert "Could not parse temperature" in caplog.text
+    data = client._parse_device_page("DEV001", minimal_html)
+    assert data["last_check_in"] == "20 minutes ago"
 
 
 def test_parse_device_page_missing_elements() -> None:

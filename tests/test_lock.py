@@ -1,7 +1,5 @@
 """Tests for iGuardStove lock entity."""
 
-from __future__ import annotations
-
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -38,7 +36,15 @@ DEVICE_DATA_LOCKED = {
 
 
 async def _setup_integration(hass: HomeAssistant, device_data: dict) -> MockConfigEntry:
-    """Helper: set up the integration with fixed device data."""
+    """Helper: set up the integration with fixed device data.
+
+    Args:
+        hass: The HomeAssistant core object.
+        device_data: The mocked device data dictionary to use.
+
+    Returns:
+        The created MockConfigEntry.
+    """
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -66,7 +72,11 @@ async def _setup_integration(hass: HomeAssistant, device_data: dict) -> MockConf
 
 
 async def test_lock_entity_is_unlocked(hass: HomeAssistant) -> None:
-    """Test lock entity reports unlocked state correctly."""
+    """Test lock entity reports unlocked state correctly.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
     await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
     state = hass.states.get("lock.guest_house_stove_stove_lock")
     assert state is not None
@@ -74,7 +84,11 @@ async def test_lock_entity_is_unlocked(hass: HomeAssistant) -> None:
 
 
 async def test_lock_entity_is_locked(hass: HomeAssistant) -> None:
-    """Test lock entity reports locked state correctly."""
+    """Test lock entity reports locked state correctly.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
     state = hass.states.get("lock.guest_house_stove_stove_lock")
     assert state is not None
@@ -82,7 +96,11 @@ async def test_lock_entity_is_locked(hass: HomeAssistant) -> None:
 
 
 async def test_lock_action_calls_toggle(hass: HomeAssistant) -> None:
-    """Test that calling lock service invokes async_toggle_lock."""
+    """Test that calling lock service invokes async_toggle_lock.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
     await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
 
     with patch(
@@ -102,7 +120,11 @@ async def test_lock_action_calls_toggle(hass: HomeAssistant) -> None:
 
 
 async def test_unlock_action_calls_toggle(hass: HomeAssistant) -> None:
-    """Test that calling unlock service invokes async_toggle_lock."""
+    """Test that calling unlock service invokes async_toggle_lock.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
 
     with patch(
@@ -122,7 +144,11 @@ async def test_unlock_action_calls_toggle(hass: HomeAssistant) -> None:
 
 
 async def test_lock_skips_toggle_when_already_locked(hass: HomeAssistant) -> None:
-    """Test that calling lock when already locked skips the toggle."""
+    """Test that calling lock when already locked skips the toggle.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
 
     with patch(
@@ -142,7 +168,11 @@ async def test_lock_skips_toggle_when_already_locked(hass: HomeAssistant) -> Non
 
 
 async def test_unlock_skips_toggle_when_already_unlocked(hass: HomeAssistant) -> None:
-    """Test that calling unlock when already unlocked skips the toggle."""
+    """Test that calling unlock when already unlocked skips the toggle.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
     await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
 
     with patch(
@@ -159,3 +189,36 @@ async def test_unlock_skips_toggle_when_already_unlocked(hass: HomeAssistant) ->
         await hass.async_block_till_done()
 
     mock_toggle.assert_not_called()
+
+
+async def test_lock_entity_missing_data(hass: HomeAssistant) -> None:
+    """Test lock entity returns None when device data is missing.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
+    await _setup_integration(hass, None)
+    state = hass.states.get("lock.iguardstove_stove_lock")
+    assert state is not None
+    assert state.state == "unknown"
+    assert state is not None
+    assert state.state == "unknown"
+
+
+async def test_lock_entity_missing_is_locked_key(hass: HomeAssistant) -> None:
+    """Test lock entity returns None when is_locked key is missing.
+
+    Args:
+        hass: The HomeAssistant core object.
+    """
+    device_data_no_lock = {
+        "device_id": "AABBCCDD1234",
+        "device_name": "Guest House Stove",
+        "status": "Stove Off",
+        "status_raw": "iGuardStove is off",
+        # "is_locked" key missing entirely
+    }
+    await _setup_integration(hass, device_data_no_lock)
+    state = hass.states.get("lock.guest_house_stove_stove_lock")
+    assert state is not None
+    assert state.state == "unknown"

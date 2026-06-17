@@ -1,7 +1,5 @@
 """Tests for the iGuardStove integration setup and teardown lifecycle."""
 
-from __future__ import annotations
-
 from unittest.mock import patch
 
 import pytest

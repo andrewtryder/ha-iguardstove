@@ -1,7 +1,5 @@
 """iGuardStove web client - handles login and scraping of stove data."""
 
-from __future__ import annotations
-
 import logging
 import re
 import urllib.parse
@@ -24,6 +22,13 @@ from .const import (
     STATUS_MAP,
     USER_AGENT,
 )
+
+# Pre-compiled regular expressions for performance
+DEVICE_URL_RE = re.compile(r"^/devices/([A-F0-9]+)/$")
+CHECKIN_PREFIX_RE = re.compile(
+    r"^iGuardStove\s+Last\s+Checked\s+In:\s*", flags=re.IGNORECASE
+)
+TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -170,11 +175,12 @@ class IGuardStoveClient:
 
         soup = BeautifulSoup(html, "html.parser")
         devices = []
+        seen_device_ids = set()
 
         # Each device card links to /devices/<device_id>/
         for link in soup.find_all("a", href=True):
             href: str = link["href"]
-            m = re.match(r"^/devices/([A-F0-9]+)/$", href)
+            m = DEVICE_URL_RE.match(href)
             if m:
                 device_id = m.group(1)
                 # Look for a stove title in the nearest ancestor stove_line block
@@ -185,7 +191,8 @@ class IGuardStoveClient:
                     if title_el:
                         name = title_el.get_text(strip=True)
                 # Avoid duplicates (the same device_id can appear multiple times)
-                if not any(d["device_id"] == device_id for d in devices):
+                if device_id not in seen_device_ids:
+                    seen_device_ids.add(device_id)
                     devices.append({"device_id": device_id, "device_name": name})
 
         _LOGGER.debug("Discovered %d device(s): %s", len(devices), devices)
@@ -275,12 +282,7 @@ class IGuardStoveClient:
         if checkin_el:
             raw = checkin_el.get_text(strip=True)
             # Strip the label prefix
-            raw = re.sub(
-                r"^iGuardStove\s+Last\s+Checked\s+In:\s*",
-                "",
-                raw,
-                flags=re.IGNORECASE,
-            )
+            raw = CHECKIN_PREFIX_RE.sub("", raw)
             data["last_check_in"] = raw
         else:
             data["last_check_in"] = None
@@ -306,7 +308,7 @@ class IGuardStoveClient:
 
             elif "temperature" in title_text:
                 # Value looks like "81°F" or "27°C"
-                m = re.match(r"([\d.]+)\s*(°[FC]?)?", value_text)
+                m = TEMP_RE.match(value_text)
                 if m:
                     try:
                         data["temperature"] = float(m.group(1))
