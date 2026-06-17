@@ -324,6 +324,18 @@ def test_parse_device_page_celsius() -> None:
     assert data["temperature_unit"] == "°C"
 
 
+def test_parse_device_page_checkin_fallback() -> None:
+    """Test parsing last check in without prefix."""
+    minimal_html = """
+    <html><body>
+      <span class="stove_date">20 minutes ago</span>
+    </body></html>
+    """
+    client = IGuardStoveClient.__new__(IGuardStoveClient)
+    data = client._parse_device_page("DEV001", minimal_html)
+    assert data["last_check_in"] == "20 minutes ago"
+
+
 def test_parse_device_page_missing_elements() -> None:
     """Test parsing a minimal page with missing optional elements."""
     minimal_html = """
