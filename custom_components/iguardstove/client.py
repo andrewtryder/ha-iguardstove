@@ -175,6 +175,7 @@ class IGuardStoveClient:
 
         soup = BeautifulSoup(html, "html.parser")
         devices = []
+        seen_device_ids = set()
 
         # Each device card links to /devices/<device_id>/
         for link in soup.find_all("a", href=True):
@@ -190,7 +191,8 @@ class IGuardStoveClient:
                     if title_el:
                         name = title_el.get_text(strip=True)
                 # Avoid duplicates (the same device_id can appear multiple times)
-                if not any(d["device_id"] == device_id for d in devices):
+                if device_id not in seen_device_ids:
+                    seen_device_ids.add(device_id)
                     devices.append({"device_id": device_id, "device_name": name})
 
         _LOGGER.debug("Discovered %d device(s): %s", len(devices), devices)
