@@ -96,3 +96,23 @@ async def test_locked_binary_sensor_locked(hass: HomeAssistant) -> None:
     state = hass.states.get("binary_sensor.guest_house_stove_locked")
     assert state is not None
     assert state.state == "on"
+
+
+async def test_locked_binary_sensor_missing_data(hass: HomeAssistant) -> None:
+    """Test locked binary sensor is unknown when data is missing."""
+    # When device_data is missing, is_on returns None, which HA translates to 'unknown'.
+    # However, if data is missing during setup, the entity might not be created
+    # if coordinator fails to fetch, or it might not be written to state machine.
+    # We will test the property directly.
+    from unittest.mock import MagicMock
+
+    from custom_components.iguardstove.binary_sensor import IGuardStoveLockBinarySensor
+    from custom_components.iguardstove.coordinator import (
+        IGuardStoveDataUpdateCoordinator,
+    )
+
+    coordinator = MagicMock(spec=IGuardStoveDataUpdateCoordinator)
+    coordinator.data = {}  # Missing data for device
+
+    sensor = IGuardStoveLockBinarySensor(coordinator, "AABBCCDD1234")
+    assert sensor.is_on is None
