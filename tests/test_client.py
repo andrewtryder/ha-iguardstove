@@ -104,6 +104,26 @@ DEVICE_PAGE_LOCKED_HTML = """
 </html>
 """
 
+
+DEVICE_PAGE_INVALID_TEMP_HTML = """
+<!doctype html>
+<html>
+<body>
+  <span class="stove_title">Invalid Temp Stove</span>
+  <span class="stove_status_text">iGuardStove is off</span>
+  <span class="stove_date">iGuardStove Last Checked In: 1 hour ago</span>
+  <div class="info_block">
+    <span class="info_title">Temperature</span>
+    <span class="info_value">1.2.3°F</span>
+  </div>
+  <form id="unlock">
+    <input type="hidden" name="csrfmiddlewaretoken" value="form_csrf_token" />
+    <button type="submit" name="lock" value="CCDD1234">Lock</button>
+  </form>
+</body>
+</html>
+"""
+
 DEVICE_PAGE_CELSIUS_HTML = """
 <!doctype html>
 <html>
@@ -322,6 +342,18 @@ def test_parse_device_page_celsius() -> None:
     data = client._parse_device_page("CCDD1234", DEVICE_PAGE_CELSIUS_HTML)
     assert data["temperature"] == 22.0
     assert data["temperature_unit"] == "°C"
+
+
+def test_parse_device_page_invalid_temperature(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test invalid temperature logs a warning."""
+    client = IGuardStoveClient.__new__(IGuardStoveClient)
+    data = client._parse_device_page("CCDD1234", DEVICE_PAGE_INVALID_TEMP_HTML)
+
+    assert data["temperature"] is None
+    assert data["temperature_unit"] == "°F"
+    assert "Could not parse temperature" in caplog.text
 
 
 def test_parse_device_page_missing_elements() -> None:
