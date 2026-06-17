@@ -159,3 +159,28 @@ async def test_unlock_skips_toggle_when_already_unlocked(hass: HomeAssistant) ->
         await hass.async_block_till_done()
 
     mock_toggle.assert_not_called()
+
+
+async def test_lock_entity_missing_data(hass: HomeAssistant) -> None:
+    """Test lock entity returns None when device data is missing."""
+    await _setup_integration(hass, None)
+    state = hass.states.get("lock.iguardstove_stove_lock")
+    assert state is not None
+    assert state.state == "unknown"
+    assert state is not None
+    assert state.state == "unknown"
+
+
+async def test_lock_entity_missing_is_locked_key(hass: HomeAssistant) -> None:
+    """Test lock entity returns None when is_locked key is missing."""
+    device_data_no_lock = {
+        "device_id": "AABBCCDD1234",
+        "device_name": "Guest House Stove",
+        "status": "Stove Off",
+        "status_raw": "iGuardStove is off",
+        # "is_locked" key missing entirely
+    }
+    await _setup_integration(hass, device_data_no_lock)
+    state = hass.states.get("lock.guest_house_stove_stove_lock")
+    assert state is not None
+    assert state.state == "unknown"
