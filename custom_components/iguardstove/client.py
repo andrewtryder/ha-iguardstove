@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 import urllib.parse
+from typing import Any
 
 import aiohttp
 from bs4 import BeautifulSoup
@@ -170,6 +170,7 @@ class IGuardStoveClient:
 
         soup = BeautifulSoup(html, "html.parser")
         devices = []
+        seen_device_ids = set()
 
         # Each device card links to /devices/<device_id>/
         for link in soup.find_all("a", href=True):
@@ -185,7 +186,8 @@ class IGuardStoveClient:
                     if title_el:
                         name = title_el.get_text(strip=True)
                 # Avoid duplicates (the same device_id can appear multiple times)
-                if not any(d["device_id"] == device_id for d in devices):
+                if device_id not in seen_device_ids:
+                    seen_device_ids.add(device_id)
                     devices.append({"device_id": device_id, "device_name": name})
 
         _LOGGER.debug("Discovered %d device(s): %s", len(devices), devices)
@@ -318,7 +320,7 @@ class IGuardStoveClient:
         _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
         return data
 
-    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:
+    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:  # noqa: C901
         """Toggle the stove lock state via the device page form.
 
         The form (id='unlock') POSTs to the current device URL with only the
@@ -371,14 +373,14 @@ class IGuardStoveClient:
             "csrfmiddlewaretoken": csrf_token,
             button_name: button_value,
         }
-        
+
         # Resolve target POST URL from the form's action attribute
         action = form.get("action")
         if action:
             post_url = urllib.parse.urljoin(url, action)
         else:
             post_url = url
-            
+
         post_headers = {**self._headers, "Referer": url}
 
         _LOGGER.debug("POSTing lock toggle for device %s to %s", device_id, post_url)
