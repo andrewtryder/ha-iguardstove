@@ -11,6 +11,8 @@
 
 A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.iguardstove.com) devices. Replaces the `multiscrape` blueprint approach with a first-class HA integration that auto-discovers all stoves on your account.
 
+![iGuardStove Device Dashboard](images/device_page.png)
+
 ---
 
 > [!WARNING]
