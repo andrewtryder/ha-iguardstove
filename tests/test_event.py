@@ -13,6 +13,8 @@ from custom_components.iguardstove.const import DOMAIN
 from custom_components.iguardstove.event import make_event_fingerprint
 from custom_components.iguardstove.models import StoveEvent, StoveEventType
 
+pytestmark = pytest.mark.enable_socket
+
 
 @pytest.mark.asyncio
 async def test_event_entity_creation_and_initial_seeding(hass: HomeAssistant) -> None:
