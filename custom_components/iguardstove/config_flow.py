@@ -69,7 +69,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception during config flow")
                 errors["base"] = "unknown"
             else:
-                # Store devices alongside credentials so __init__.py can use them
                 return self.async_create_entry(
                     title=info["title"],
                     data={
@@ -82,4 +81,52 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
             errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> FlowResult:
+        """Handle initiation of reauthentication flow."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle reauthentication confirmation step."""
+        errors: dict[str, str] = {}
+        reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+
+        if user_input is not None and reauth_entry is not None:
+            data = {
+                CONF_USERNAME: reauth_entry.data[CONF_USERNAME],
+                CONF_PASSWORD: user_input[CONF_PASSWORD],
+            }
+            try:
+                info = await validate_input(self.hass, data)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception during reauth flow")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    reauth_entry,
+                    data={
+                        **reauth_entry.data,
+                        CONF_PASSWORD: user_input[CONF_PASSWORD],
+                        "devices": info["devices"],
+                    },
+                )
+
+        schema = vol.Schema({vol.Required(CONF_PASSWORD): str})
+        username = reauth_entry.data[CONF_USERNAME] if reauth_entry else ""
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"username": username},
         )

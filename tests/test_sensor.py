@@ -98,6 +98,10 @@ async def _setup_integration(hass: HomeAssistant, device_data: dict) -> MockConf
             return_value=True,
         ),
         patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
             return_value=device_data,
         ),

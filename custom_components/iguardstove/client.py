@@ -1,11 +1,13 @@
 """iGuardStove web client - handles login and scraping of stove data."""
 
+import asyncio
 import logging
 import re
 import urllib.parse
 from typing import Any
 
 import aiohttp
+import yarl
 from bs4 import BeautifulSoup
 
 from .const import (
@@ -30,7 +32,10 @@ CHECKIN_PREFIX_RE = re.compile(
 )
 TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
 
+REQUEST_TIMEOUT = 15
+
 _LOGGER = logging.getLogger(__name__)
+_SEEN_UNKNOWN_STATUSES: set[str] = set()
 
 
 class IGuardStoveException(Exception):
@@ -52,8 +57,7 @@ def normalize_status(raw: str | None) -> str | None:
     lowercased raw string. Returns the first match found.
 
     If no known pattern matches, the raw text is returned unchanged AND a
-    WARNING is logged — this is intentional so new statuses are easy to spot
-    in the HA log and can be added to STATUS_MAP in const.py.
+    WARNING is logged once per distinct unknown raw status value.
     """
     if not raw:
         return raw
@@ -61,12 +65,13 @@ def normalize_status(raw: str | None) -> str | None:
     for pattern, label in STATUS_MAP.items():
         if pattern in lower:
             return label
-    # Unknown — log it so the user can report / extend STATUS_MAP
-    _LOGGER.warning(
-        "Unknown iGuardStove status encountered: %r — "
-        "please open an issue or add it to STATUS_MAP in const.py",
-        raw,
-    )
+    if raw not in _SEEN_UNKNOWN_STATUSES:
+        _SEEN_UNKNOWN_STATUSES.add(raw)
+        _LOGGER.warning(
+            "Unknown iGuardStove status encountered: %r — "
+            "please open an issue or add it to STATUS_MAP in const.py",
+            raw,
+        )
     return raw  # fall back to raw text so the sensor still has a value
 
 
@@ -92,6 +97,85 @@ class IGuardStoveClient:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
+        self._device_locks: dict[str, asyncio.Lock] = {}
+
+    async def async_close(self) -> None:
+        """Close underlying HTTP session resources if open."""
+        if not self._session.closed:
+            await self._session.close()
+
+    def _get_device_lock(self, device_id: str) -> asyncio.Lock:
+        """Get or create per-device asyncio lock."""
+        if device_id not in self._device_locks:
+            self._device_locks[device_id] = asyncio.Lock()
+        return self._device_locks[device_id]
+
+    def _validate_origin(self, url: str | yarl.URL) -> None:
+        """Validate URL origin matches the expected HTTPS portal origin."""
+        target = yarl.URL(url)
+        expected = yarl.URL(BASE_URL)
+        if target.scheme != "https":
+            raise CannotConnect(f"Insecure URL scheme: {target.scheme}")
+        if target.host != expected.host:
+            raise CannotConnect(
+                f"URL origin mismatch: expected {expected.host}, got {target.host}"
+            )
+
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        data: Any = None,
+        allow_redirects: bool = True,
+        is_login_page: bool = False,
+    ) -> tuple[int, str, yarl.URL]:
+        """Shared request helper validating status, origin, content-type, login redirects, and timeout."""
+        self._validate_origin(url)
+        req_headers = {**self._headers, **(headers or {})}
+
+        try:
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                async with self._session.request(
+                    method,
+                    url,
+                    headers=req_headers,
+                    data=data,
+                    allow_redirects=allow_redirects,
+                ) as resp:
+                    final_url = resp.url
+                    self._validate_origin(final_url)
+
+                    # Detect redirect to login page for non-login requests
+                    final_str = str(final_url).lower()
+                    if not is_login_page and (
+                        "login" in final_url.path.lower() or "login" in final_str
+                    ):
+                        raise InvalidAuth("Session expired or redirected to login page")
+
+                    if resp.status != 200:
+                        raise CannotConnect(
+                            f"HTTP request to {url} returned status {resp.status}"
+                        )
+
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    if (
+                        content_type
+                        and "text/html" not in content_type
+                        and "application/xhtml+xml" not in content_type
+                        and "text/plain" not in content_type
+                    ):
+                        raise CannotConnect(
+                            f"Unexpected content type {content_type!r} from {url}"
+                        )
+
+                    html = await resp.text()
+                    return resp.status, html, final_url
+        except asyncio.TimeoutError as ex:
+            raise CannotConnect(f"Timeout connecting to {url}") from ex
+        except aiohttp.ClientError as ex:
+            raise CannotConnect(f"Network error during {method} to {url}") from ex
 
     async def async_login(self) -> bool:
         """Log in to the iGuardFire management portal.
@@ -101,17 +185,11 @@ class IGuardStoveClient:
         2. POST credentials with the token included, and the Referer header set.
         """
         _LOGGER.debug("Fetching iGuardFire login page for CSRF token")
-        try:
-            async with self._session.get(LOGIN_URL, headers=self._headers) as resp:
-                if resp.status != 200:
-                    raise CannotConnect(f"Login page returned HTTP {resp.status}")
-                html = await resp.text()
-        except aiohttp.ClientError as ex:
-            raise CannotConnect("Network error fetching login page") from ex
+        _, html, _ = await self._request("GET", LOGIN_URL, is_login_page=True)
 
         soup = BeautifulSoup(html, "html.parser")
         csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
-        if not csrf_input:
+        if not csrf_input or not csrf_input.get("value"):
             raise CannotConnect("csrfmiddlewaretoken not found on login page")
 
         csrf_token = csrf_input.get("value")
@@ -122,38 +200,36 @@ class IGuardStoveClient:
             "login": self.username,
             "password": self.password,
         }
-        post_headers = {**self._headers, "Referer": LOGIN_URL}
+        post_headers = {"Referer": LOGIN_URL}
 
         _LOGGER.debug("Submitting login credentials")
-        try:
-            async with self._session.post(
-                LOGIN_URL,
-                data=payload,
-                headers=post_headers,
-                allow_redirects=True,
-            ) as resp_login:
-                if resp_login.status != 200:
-                    raise CannotConnect(f"Login POST returned HTTP {resp_login.status}")
-                login_html = await resp_login.text()
-                final_url = str(resp_login.url)
+        _, login_html, final_url = await self._request(
+            "POST",
+            LOGIN_URL,
+            data=payload,
+            headers=post_headers,
+            allow_redirects=True,
+            is_login_page=True,
+        )
 
-            # If we're still on the login page, credentials were wrong
-            if "login" in final_url and "next" in final_url:
-                raise InvalidAuth("Credentials were rejected")
+        # Check for specific error elements on the returned login page first
+        err_soup = BeautifulSoup(login_html, "html.parser")
+        err_el = err_soup.find(class_="errorlist") or err_soup.find(
+            class_="alert-danger"
+        )
+        if err_el:
+            raise InvalidAuth(err_el.get_text(strip=True))
 
-            # Check for known error messages in the page body
-            err_soup = BeautifulSoup(login_html, "html.parser")
-            err_el = err_soup.find(class_="errorlist") or err_soup.find(
-                class_="alert-danger"
-            )
-            if err_el:
-                raise InvalidAuth(err_el.get_text(strip=True))
+        final_str = str(final_url).lower()
+        if "login" in final_url.path.lower() or ("login" in final_str and "next" in final_str):
+            raise InvalidAuth("Credentials were rejected")
 
-            _LOGGER.info("iGuardStove login successful (redirected to %s)", final_url)
-            return True
+        # Positive authenticated-page invariant: reject if password input remains on page
+        if err_soup.find("input", {"type": "password"}):
+            raise InvalidAuth("Login page still present after credentials submission")
 
-        except aiohttp.ClientError as ex:
-            raise CannotConnect("Network error during login") from ex
+        _LOGGER.info("iGuardStove login successful (redirected to %s)", final_url)
+        return True
 
     async def async_get_devices(self, retry_login: bool = True) -> list[dict[str, Any]]:
         """Fetch all registered iGuardStove devices from the dashboard.
@@ -162,35 +238,29 @@ class IGuardStoveClient:
         """
         _LOGGER.debug("Fetching dashboard to discover devices")
         try:
-            async with self._session.get(f"{BASE_URL}/", headers=self._headers) as resp:
-                if resp.status == 302 or "login" in str(resp.url):
-                    if retry_login:
-                        _LOGGER.info("Session expired, re-logging in")
-                        await self.async_login()
-                        return await self.async_get_devices(retry_login=False)
-                    raise InvalidAuth("Session expired after re-login attempt")
-                html = await resp.text()
-        except aiohttp.ClientError as ex:
-            raise CannotConnect("Network error fetching dashboard") from ex
+            _, html, _ = await self._request("GET", f"{BASE_URL}/")
+        except InvalidAuth:
+            if retry_login:
+                _LOGGER.info("Session expired, re-logging in")
+                await self.async_login()
+                return await self.async_get_devices(retry_login=False)
+            raise
 
         soup = BeautifulSoup(html, "html.parser")
         devices = []
         seen_device_ids = set()
 
-        # Each device card links to /devices/<device_id>/
         for link in soup.find_all("a", href=True):
             href: str = link["href"]
             m = DEVICE_URL_RE.match(href)
             if m:
                 device_id = m.group(1)
-                # Look for a stove title in the nearest ancestor stove_line block
                 parent = link.find_parent(class_="stove_line")
                 name = "iGuardStove"
                 if parent:
                     title_el = parent.find(class_=SEL_STOVE_TITLE)
                     if title_el:
                         name = title_el.get_text(strip=True)
-                # Avoid duplicates (the same device_id can appear multiple times)
                 if device_id not in seen_device_ids:
                     seen_device_ids.add(device_id)
                     devices.append({"device_id": device_id, "device_name": name})
@@ -201,42 +271,24 @@ class IGuardStoveClient:
     async def async_get_device_data(
         self, device_id: str, retry_login: bool = True
     ) -> dict[str, Any]:
-        """Fetch and parse all sensor data for a single device.
-
-        Returns a dict with the following keys (all optional, None if not found):
-          - device_id (str)
-          - device_name (str)
-          - status (str)           - human-readable status text
-          - is_locked (bool)       - True when night/manual lock is active
-          - last_check_in (str)    - relative time string, e.g. "20 minutes ago"
-          - temperature (float|None) - ambient temperature in °F
-            (or °C per device setting)
-          - temperature_unit (str) - "°F" or "°C"
-          - fires_prevented (int|None) - cumulative automatic shut-off count
-        """
+        """Fetch and parse all sensor data for a single device."""
         url = f"{BASE_URL}/devices/{device_id}/"
         _LOGGER.debug("Fetching device page: %s", url)
 
         try:
-            async with self._session.get(url, headers=self._headers) as resp:
-                if resp.status in (302, 301) or "login" in str(resp.url):
-                    if retry_login:
-                        _LOGGER.info("Session expired, re-logging in")
-                        await self.async_login()
-                        return await self.async_get_device_data(
-                            device_id, retry_login=False
-                        )
-                    raise InvalidAuth("Session expired after re-login attempt")
-
-                if resp.status != 200:
-                    raise CannotConnect(f"Device page returned HTTP {resp.status}")
-                html = await resp.text()
-        except aiohttp.ClientError as ex:
-            raise CannotConnect(f"Network error fetching device {device_id}") from ex
+            _, html, _ = await self._request("GET", url)
+        except InvalidAuth:
+            if retry_login:
+                _LOGGER.info("Session expired, re-logging in")
+                await self.async_login()
+                return await self.async_get_device_data(
+                    device_id, retry_login=False
+                )
+            raise
 
         return self._parse_device_page(device_id, html)
 
-    def _parse_device_page(self, device_id: str, html: str) -> dict[str, Any]:  # noqa: C901
+    def _parse_device_page(self, device_id: str, html: str) -> dict[str, Any]:
         """Parse the device detail page HTML into a data dict."""
         soup = BeautifulSoup(html, "html.parser")
         data: dict[str, Any] = {"device_id": device_id}
@@ -247,47 +299,39 @@ class IGuardStoveClient:
             title_el.get_text(strip=True) if title_el else "iGuardStove"
         )
 
-        # Status text (e.g. "iGuardStove is LOCKED OUT for the night")
-        # normalize_status() maps known patterns → clean labels and logs a
-        # WARNING for any unrecognised string so it can be added to STATUS_MAP.
         status_el = soup.find(class_=SEL_STOVE_STATUS_TEXT)
         raw_status: str | None = status_el.get_text(strip=True) if status_el else None
-        data["status_raw"] = raw_status  # always the exact portal text
-        data["status"] = normalize_status(raw_status)  # clean label for the sensor
+        data["status_raw"] = raw_status
+        data["status"] = normalize_status(raw_status)
 
-        # Determine lock state:
-        # Check the form button name first as it is the most authoritative
-        # indicator of lock
-        # control state.
-        # If the button name is 'unlock', it means the next action is to unlock, so the
-        # device is currently locked.
-        form = soup.find("form", {"id": "unlock"})
+        # Determine lock state from button first (authoritative action indicator)
+        form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
+        if not form:
+            for f in soup.find_all("form"):
+                if f.find("button", {"name": ["lock", "unlock"]}):
+                    form = f
+                    break
+
         button = form.find("button") if form else None
-        if button and button.get("name"):
+        if button and button.get("name") in ("lock", "unlock"):
             data["is_locked"] = button.get("name") == "unlock"
         else:
-            # Fallback: Determine lock state from status icon:
-            # an <img class="lock"> inside the icon block
             icon_block = soup.find(class_=SEL_STATUS_ICON)
             if icon_block:
                 lock_img = icon_block.find("img", class_=SEL_LOCK_IMG)
                 data["is_locked"] = lock_img is not None
             else:
-                # Fallback: look for "LOCKED OUT" in status text
                 status_text = (data.get("status") or "").lower()
                 data["is_locked"] = "locked" in status_text
 
-        # Last check-in: strip the "iGuardStove Last Checked In:" prefix
         checkin_el = soup.find(class_=SEL_STOVE_DATE)
         if checkin_el:
             raw = checkin_el.get_text(strip=True)
-            # Strip the label prefix
             raw = CHECKIN_PREFIX_RE.sub("", raw)
             data["last_check_in"] = raw
         else:
             data["last_check_in"] = None
 
-        # Info blocks: "Potential Fires Prevented" and "Temperature"
         data["fires_prevented"] = None
         data["temperature"] = None
         data["temperature_unit"] = "°F"
@@ -307,7 +351,6 @@ class IGuardStoveClient:
                     _LOGGER.warning("Could not parse fires_prevented: %r", value_text)
 
             elif "temperature" in title_text:
-                # Value looks like "81°F" or "27°C"
                 m = TEMP_RE.match(value_text)
                 if m:
                     try:
@@ -320,80 +363,114 @@ class IGuardStoveClient:
         _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
         return data
 
-    async def async_toggle_lock(self, device_id: str, retry_login: bool = True) -> bool:  # noqa: C901
-        """Toggle the stove lock state via the device page form.
-
-        The form (id='unlock') POSTs to the current device URL with only the
-        csrfmiddlewaretoken. The server flips the lock state on each POST.
-        Returns True on success.
-        """
-        url = f"{BASE_URL}/devices/{device_id}/"
-        _LOGGER.debug("Fetching device page for CSRF token (lock toggle)")
-
-        try:
-            async with self._session.get(url, headers=self._headers) as resp:
-                if "login" in str(resp.url):
-                    if retry_login:
-                        await self.async_login()
-                        return await self.async_toggle_lock(
-                            device_id, retry_login=False
-                        )
-                    raise InvalidAuth("Session expired")
-                html = await resp.text()
-        except aiohttp.ClientError as ex:
-            raise CannotConnect("Network error fetching device page for lock") from ex
-
-        soup = BeautifulSoup(html, "html.parser")
-        form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
-        if not form:
-            # Fallback: check any form that has a button with lock/unlock names
-            for f in soup.find_all("form"):
-                if f.find("button", {"name": ["lock", "unlock"]}):
-                    form = f
-                    break
-        if not form:
-            raise CannotConnect("Lock toggle form not found on device page")
-
-        csrf_input = form.find("input", {"name": "csrfmiddlewaretoken"})
-        if not csrf_input:
-            raise CannotConnect("csrfmiddlewaretoken not found in lock form")
-
-        csrf_token = csrf_input.get("value")
-
-        # Extract button name and value (e.g. name="lock", value="device_id"
-        # or name="unlock")
-        button = form.find("button")
-        if not button:
-            raise CannotConnect("Lock button not found inside form")
-
-        button_name = button.get("name", "lock")
-        button_value = button.get("value", device_id)
-
-        payload = {
-            "csrfmiddlewaretoken": csrf_token,
-            button_name: button_value,
-        }
-
-        # Resolve target POST URL from the form's action attribute
-        action = form.get("action")
-        if action:
-            post_url = urllib.parse.urljoin(url, action)
-        else:
-            post_url = url
-
-        post_headers = {**self._headers, "Referer": url}
-
-        _LOGGER.debug("POSTing lock toggle for device %s to %s", device_id, post_url)
-        try:
-            async with self._session.post(
-                post_url, data=payload, headers=post_headers, allow_redirects=True
-            ) as resp_lock:
-                if resp_lock.status != 200:
-                    raise CannotConnect(
-                        f"Lock toggle POST returned HTTP {resp_lock.status}"
+    async def async_set_lock_state(
+        self, device_id: str, target_locked: bool, retry_login: bool = True
+    ) -> None:
+        """Safely and idempotently set device lock state."""
+        lock = self._get_device_lock(device_id)
+        async with lock:
+            url = f"{BASE_URL}/devices/{device_id}/"
+            try:
+                _, html, _ = await self._request("GET", url)
+            except InvalidAuth:
+                if retry_login:
+                    _LOGGER.info("Session expired before lock state change, re-logging in")
+                    await self.async_login()
+                    return await self.async_set_lock_state(
+                        device_id, target_locked, retry_login=False
                     )
-        except aiohttp.ClientError as ex:
-            raise CannotConnect("Network error during lock toggle") from ex
+                raise
 
-        _LOGGER.info("Lock toggled for device %s", device_id)
-        return True
+            soup = BeautifulSoup(html, "html.parser")
+            form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
+            if not form:
+                for f in soup.find_all("form"):
+                    if f.find("button", {"name": ["lock", "unlock"]}):
+                        form = f
+                        break
+
+            if not form:
+                raise CannotConnect(
+                    f"Lock toggle form not found on device page for {device_id}"
+                )
+
+            csrf_input = form.find("input", {"name": "csrfmiddlewaretoken"})
+            if not csrf_input or not csrf_input.get("value"):
+                raise CannotConnect(
+                    "csrfmiddlewaretoken missing or invalid in lock form"
+                )
+
+            csrf_token = csrf_input.get("value")
+
+            button = form.find("button")
+            if not button or not button.get("name"):
+                raise CannotConnect("Lock button missing or unnamed in form")
+
+            button_name = button.get("name")
+            if button_name not in ("lock", "unlock"):
+                raise CannotConnect(f"Unexpected button name {button_name!r} in lock form")
+
+            is_currently_locked = (button_name == "unlock")
+
+            if is_currently_locked == target_locked:
+                _LOGGER.debug(
+                    "Device %s is already in target lock state (%s), skipping POST",
+                    device_id,
+                    target_locked,
+                )
+                return
+
+            expected_button_name = "lock" if target_locked else "unlock"
+            if button_name != expected_button_name:
+                raise CannotConnect(
+                    f"Form action {button_name!r} does not match required action for target_locked={target_locked}"
+                )
+
+            button_value = button.get("value", device_id)
+            payload = {
+                "csrfmiddlewaretoken": csrf_token,
+                button_name: button_value,
+            }
+
+            action = form.get("action")
+            post_url = urllib.parse.urljoin(url, action) if action else url
+            post_headers = {"Referer": url}
+
+            _LOGGER.debug(
+                "Posting lock state change for device %s (target_locked=%s) to %s",
+                device_id,
+                target_locked,
+                post_url,
+            )
+
+            try:
+                _, post_html, _ = await self._request(
+                    "POST", post_url, headers=post_headers, data=payload
+                )
+            except InvalidAuth:
+                if retry_login:
+                    _LOGGER.info("Session expired during lock POST, re-logging in")
+                    await self.async_login()
+                    return await self.async_set_lock_state(
+                        device_id, target_locked, retry_login=False
+                    )
+                raise
+
+            parsed = self._parse_device_page(device_id, post_html)
+            final_locked = parsed.get("is_locked")
+
+            if final_locked != target_locked:
+                _, refetch_html, _ = await self._request("GET", url)
+                refetch_parsed = self._parse_device_page(device_id, refetch_html)
+                final_locked = refetch_parsed.get("is_locked")
+
+            if final_locked != target_locked:
+                raise CannotConnect(
+                    f"Failed to confirm lock state transition for device {device_id}: expected {target_locked}, got {final_locked}"
+                )
+
+            _LOGGER.info(
+                "Lock state for device %s successfully changed to %s",
+                device_id,
+                target_locked,
+            )

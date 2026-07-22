@@ -1,24 +1,19 @@
-"""Lock platform for iGuardStove.
-
-Exposes the stove lockout as a Home Assistant lock entity so users can
-lock/unlock the stove from the HA UI, automations, and voice assistants.
-
-Note: The iGuardFire portal uses a single "toggle" POST rather than separate
-lock/unlock endpoints, so both lock() and unlock() call the same toggle.
-The coordinator is refreshed immediately after to reflect the new state.
-"""
+"""Lock platform for iGuardStove."""
 
 import logging
 from typing import Any
 
 from homeassistant.components.lock import LockEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import IGuardStoveClient
 from .const import DOMAIN
-from .coordinator import IGuardStoveDataUpdateCoordinator
+from .coordinator import (
+    IGuardStoveConfigEntry,
+    IGuardStoveDataUpdateCoordinator,
+)
 from .entity import IGuardStoveEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,19 +21,36 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: IGuardStoveConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up iGuardStove lock entities from a config entry."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: IGuardStoveDataUpdateCoordinator = data["coordinator"]
-    client: IGuardStoveClient = data["client"]
+    coordinator = entry.runtime_data.coordinator
+    client = entry.runtime_data.client
 
-    entities: list[LockEntity] = []
-    for device_id in coordinator.device_ids:
-        entities.append(IGuardStoveLock(coordinator, client, device_id))
-
+    known_devices = set(coordinator.device_ids)
+    entities: list[LockEntity] = [
+        IGuardStoveLock(coordinator, client, device_id)
+        for device_id in coordinator.device_ids
+    ]
     async_add_entities(entities)
+
+    def _async_add_new_devices(new_device_ids: list[str]) -> None:
+        new_entities: list[LockEntity] = []
+        for device_id in new_device_ids:
+            if device_id not in known_devices:
+                known_devices.add(device_id)
+                new_entities.append(IGuardStoveLock(coordinator, client, device_id))
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{DOMAIN}_{entry.entry_id}_new_device",
+            _async_add_new_devices,
+        )
+    )
 
 
 class IGuardStoveLock(IGuardStoveEntity, LockEntity):
@@ -73,24 +85,10 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
 
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the stove (engage lockout)."""
-        data = self._device_data or {}
-        if data.get("is_locked"):
-            _LOGGER.debug(
-                "Device %s is already locked, skipping toggle",
-                self.device_id,
-            )
-            return
-        await self._client.async_toggle_lock(self.device_id)
+        await self._client.async_set_lock_state(self.device_id, True)
         await self.coordinator.async_request_refresh()
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the stove (disengage lockout)."""
-        data = self._device_data or {}
-        if not data.get("is_locked"):
-            _LOGGER.debug(
-                "Device %s is already unlocked, skipping toggle",
-                self.device_id,
-            )
-            return
-        await self._client.async_toggle_lock(self.device_id)
+        await self._client.async_set_lock_state(self.device_id, False)
         await self.coordinator.async_request_refresh()
