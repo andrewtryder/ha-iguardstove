@@ -21,10 +21,9 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 | **Status** | `sensor` | Human-readable stove status (e.g. "iGuardStove is LOCKED OUT for the night") |
 | **Last Check-In** | `sensor` (diagnostic) | Relative time since the device last phoned home (e.g. "24 minutes ago") |
 | **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
-| **Locked** | `binary_sensor` | `ON` when stove is in lockout, `OFF` when available |
 | **Stove Lock** | `lock` | Lock/unlock the stove from the HA UI, automations, or voice assistants |
 
-All stoves registered to your account are discovered automatically at setup time.
+All stoves registered to your account are discovered automatically at setup time and updated dynamically.
 
 ---
 
@@ -59,7 +58,7 @@ No YAML configuration is needed.
 
 This integration authenticates against `manage.iguardfire.com` using a standard session-cookie + Django CSRF token login flow (the same flow used by your web browser). It scrapes the device detail pages every **60 seconds** using [BeautifulSoup](https://beautiful-soup-4.readthedocs.io/en/latest/) and exposes the data as native Home Assistant entities.
 
-The lock toggle (`lock` entity) POSTs to the same device page form that the **Lock** button on the website uses. Because the portal uses a simple toggle (not separate lock/unlock endpoints), the integration checks the current lock state before acting to avoid double-flips.
+The lock control (`lock` entity) safely and idempotently sets the requested target lockout state by checking fresh device page form state and verifying state postconditions.
 
 ### Entities per Device
 
@@ -67,7 +66,6 @@ The lock toggle (`lock` entity) POSTs to the same device page form that the **Lo
 sensor.guest_house_stove_status
 sensor.guest_house_stove_last_check_in
 sensor.guest_house_stove_temperature
-binary_sensor.guest_house_stove_locked
 lock.guest_house_stove_stove_lock
 ```
 
@@ -88,7 +86,7 @@ If you were previously using the `multiscrape` blueprint, remove those entries f
 
 ## Security
 
-Your credentials are stored in Home Assistant's encrypted config entry storage (`.storage/core.config_entries`). They are never logged.
+Credentials are stored in Home Assistant’s protected configuration storage and are not logged by this integration. At-rest protection depends on the security and disk-encryption configuration of the Home Assistant host.
 
 ---
 

@@ -8,6 +8,13 @@
           "username": "Username (Email)",
           "password": "Password"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate iGuardStove account",
+        "description": "Enter the updated password for {username}.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -16,7 +23,8 @@
       "unknown": "Unexpected error. Check the Home Assistant logs for details."
     },
     "abort": {
-      "already_configured": "This iGuardStove account is already configured."
+      "already_configured": "This iGuardStove account is already configured.",
+      "reauth_successful": "Reauthentication was successful."
     }
   }
 }

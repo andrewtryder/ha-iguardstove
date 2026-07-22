@@ -7,14 +7,17 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import IGuardStoveDataUpdateCoordinator
+from .coordinator import (
+    IGuardStoveConfigEntry,
+    IGuardStoveDataUpdateCoordinator,
+)
 from .entity import IGuardStoveEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,13 +25,13 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: IGuardStoveConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up iGuardStove sensors from a config entry."""
-    data = hass.data[DOMAIN][entry.entry_id]
-    coordinator: IGuardStoveDataUpdateCoordinator = data["coordinator"]
+    coordinator = entry.runtime_data.coordinator
 
+    known_devices = set(coordinator.device_ids)
     entities: list[SensorEntity] = []
     for device_id in coordinator.device_ids:
         entities.extend(
@@ -40,6 +43,29 @@ async def async_setup_entry(
         )
 
     async_add_entities(entities)
+
+    def _async_add_new_devices(new_device_ids: list[str]) -> None:
+        new_entities: list[SensorEntity] = []
+        for device_id in new_device_ids:
+            if device_id not in known_devices:
+                known_devices.add(device_id)
+                new_entities.extend(
+                    [
+                        IGuardStoveStatusSensor(coordinator, device_id),
+                        IGuardStoveLastCheckinSensor(coordinator, device_id),
+                        IGuardStoveTemperatureSensor(coordinator, device_id),
+                    ]
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            f"{DOMAIN}_{entry.entry_id}_new_device",
+            _async_add_new_devices,
+        )
+    )
 
 
 class IGuardStoveStatusSensor(IGuardStoveEntity, SensorEntity):

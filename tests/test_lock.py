@@ -61,6 +61,10 @@ async def _setup_integration(hass: HomeAssistant, device_data: dict) -> MockConf
             return_value=True,
         ),
         patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
             return_value=device_data,
         ),
@@ -95,19 +99,15 @@ async def test_lock_entity_is_locked(hass: HomeAssistant) -> None:
     assert state.state == "locked"
 
 
-async def test_lock_action_calls_toggle(hass: HomeAssistant) -> None:
-    """Test that calling lock service invokes async_toggle_lock.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+async def test_lock_action_calls_async_set_lock_state(hass: HomeAssistant) -> None:
+    """Test that calling lock service invokes async_set_lock_state with target_locked=True."""
     await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
 
     with patch(
-        "custom_components.iguardstove.client.IGuardStoveClient.async_toggle_lock",
+        "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
         new_callable=AsyncMock,
-        return_value=True,
-    ) as mock_toggle:
+        return_value=None,
+    ) as mock_set_state:
         await hass.services.async_call(
             "lock",
             "lock",
@@ -116,22 +116,18 @@ async def test_lock_action_calls_toggle(hass: HomeAssistant) -> None:
         )
         await hass.async_block_till_done()
 
-    mock_toggle.assert_called_once_with("AABBCCDD1234")
+    mock_set_state.assert_called_once_with("AABBCCDD1234", True)
 
 
-async def test_unlock_action_calls_toggle(hass: HomeAssistant) -> None:
-    """Test that calling unlock service invokes async_toggle_lock.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+async def test_unlock_action_calls_async_set_lock_state(hass: HomeAssistant) -> None:
+    """Test that calling unlock service invokes async_set_lock_state with target_locked=False."""
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
 
     with patch(
-        "custom_components.iguardstove.client.IGuardStoveClient.async_toggle_lock",
+        "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
         new_callable=AsyncMock,
-        return_value=True,
-    ) as mock_toggle:
+        return_value=None,
+    ) as mock_set_state:
         await hass.services.async_call(
             "lock",
             "unlock",
@@ -140,55 +136,7 @@ async def test_unlock_action_calls_toggle(hass: HomeAssistant) -> None:
         )
         await hass.async_block_till_done()
 
-    mock_toggle.assert_called_once_with("AABBCCDD1234")
-
-
-async def test_lock_skips_toggle_when_already_locked(hass: HomeAssistant) -> None:
-    """Test that calling lock when already locked skips the toggle.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
-    await _setup_integration(hass, DEVICE_DATA_LOCKED)
-
-    with patch(
-        "custom_components.iguardstove.client.IGuardStoveClient.async_toggle_lock",
-        new_callable=AsyncMock,
-        return_value=True,
-    ) as mock_toggle:
-        await hass.services.async_call(
-            "lock",
-            "lock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
-            blocking=True,
-        )
-        await hass.async_block_till_done()
-
-    mock_toggle.assert_not_called()
-
-
-async def test_unlock_skips_toggle_when_already_unlocked(hass: HomeAssistant) -> None:
-    """Test that calling unlock when already unlocked skips the toggle.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
-    await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
-
-    with patch(
-        "custom_components.iguardstove.client.IGuardStoveClient.async_toggle_lock",
-        new_callable=AsyncMock,
-        return_value=True,
-    ) as mock_toggle:
-        await hass.services.async_call(
-            "lock",
-            "unlock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
-            blocking=True,
-        )
-        await hass.async_block_till_done()
-
-    mock_toggle.assert_not_called()
+    mock_set_state.assert_called_once_with("AABBCCDD1234", False)
 
 
 async def test_lock_entity_missing_data(hass: HomeAssistant) -> None:
@@ -199,8 +147,6 @@ async def test_lock_entity_missing_data(hass: HomeAssistant) -> None:
     """
     await _setup_integration(hass, None)
     state = hass.states.get("lock.iguardstove_stove_lock")
-    assert state is not None
-    assert state.state == "unknown"
     assert state is not None
     assert state.state == "unknown"
 
@@ -216,7 +162,6 @@ async def test_lock_entity_missing_is_locked_key(hass: HomeAssistant) -> None:
         "device_name": "Guest House Stove",
         "status": "Stove Off",
         "status_raw": "iGuardStove is off",
-        # "is_locked" key missing entirely
     }
     await _setup_integration(hass, device_data_no_lock)
     state = hass.states.get("lock.guest_house_stove_stove_lock")

@@ -1,10 +1,14 @@
 """DataUpdateCoordinator for iGuardStove."""
 
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import (
@@ -21,14 +25,23 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=60)
 
 
+@dataclass
+class IGuardStoveData:
+    """Runtime data stored in ConfigEntry.runtime_data."""
+
+    client: IGuardStoveClient
+    coordinator: "IGuardStoveDataUpdateCoordinator"
+
+
+type IGuardStoveConfigEntry = ConfigEntry[IGuardStoveData]
+
+
 class IGuardStoveDataUpdateCoordinator(
     DataUpdateCoordinator[dict[str, dict[str, Any]]]
 ):
-    """Coordinator that polls all iGuardStove devices every 60 seconds.
+    """Coordinator that polls all iGuardStove devices every 60 seconds."""
 
-    Data structure:
-      { "<device_id>": { ...parsed device data... }, ... }
-    """
+    config_entry: IGuardStoveConfigEntry
 
     def __init__(
         self,
@@ -38,7 +51,7 @@ class IGuardStoveDataUpdateCoordinator(
     ) -> None:
         """Initialize the coordinator."""
         self.client = client
-        self.device_ids = device_ids
+        self.device_ids = list(device_ids)
         super().__init__(
             hass,
             _LOGGER,
@@ -47,22 +60,49 @@ class IGuardStoveDataUpdateCoordinator(
         )
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        """Fetch data for all registered devices."""
+        """Fetch data for all registered devices with error isolation and discovery."""
+        # Dynamic discovery pass
+        try:
+            discovered = await self.client.async_get_devices()
+            discovered_ids = [d["device_id"] for d in discovered]
+            new_device_ids = [
+                did for did in discovered_ids if did not in self.device_ids
+            ]
+            if new_device_ids:
+                _LOGGER.info(
+                    "Discovered %d new iGuardStove device(s): %s",
+                    len(new_device_ids),
+                    new_device_ids,
+                )
+                self.device_ids.extend(new_device_ids)
+                if hasattr(self, "config_entry") and self.config_entry:
+                    async_dispatcher_send(
+                        self.hass,
+                        f"{DOMAIN}_{self.config_entry.entry_id}_new_device",
+                        new_device_ids,
+                    )
+        except InvalidAuth as err:
+            raise ConfigEntryAuthFailed(
+                f"Authentication error during discovery pass: {err}"
+            ) from err
+        except Exception as err:
+            _LOGGER.debug("Could not perform dynamic device discovery pass: %s", err)
+
         results: dict[str, dict[str, Any]] = {}
-        for device_id in self.device_ids:
+        for device_id in list(self.device_ids):
             try:
                 data = await self.client.async_get_device_data(device_id)
                 results[device_id] = data
-            except CannotConnect as err:
-                raise UpdateFailed(
-                    f"Error communicating with iGuardFire for {device_id}: {err}"
-                ) from err
             except InvalidAuth as err:
-                raise UpdateFailed(
+                raise ConfigEntryAuthFailed(
                     f"Authentication error for {device_id}: {err}"
                 ) from err
-            except IGuardStoveException as err:
-                raise UpdateFailed(
-                    f"Error fetching data for {device_id}: {err}"
-                ) from err
+            except (CannotConnect, IGuardStoveException, Exception) as err:
+                _LOGGER.warning("Error fetching data for device %s: %s", device_id, err)
+                if self.data and device_id in self.data:
+                    results[device_id] = self.data[device_id]
+
+        if not results and self.device_ids:
+            raise UpdateFailed("Failed to fetch data for all iGuardStove devices")
+
         return results
