@@ -15,10 +15,10 @@ jobs:
     name: Python 3.14
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Python 3.14
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@423742ea4c94d0453772f37c34b7f43efc21a6c2 # v5.4.0
         with:
           python-version: "3.14"
           allow-prereleases: true

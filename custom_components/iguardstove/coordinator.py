@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -25,6 +25,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Poll every 60 seconds - matches the multiscrape blueprint interval
 SCAN_INTERVAL = timedelta(seconds=60)
+# Perform dynamic device discovery pass every 6 hours
+DISCOVERY_INTERVAL = timedelta(hours=6)
 
 
 @dataclass
@@ -53,6 +55,7 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.client = client
         self.device_ids = list(device_ids)
         self._unavailable_devices: set[str] = set()
+        self._last_discovery_time: datetime | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -90,9 +93,14 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _async_update_data(self) -> CoordinatorData:
         """Fetch data for all registered devices with error isolation and discovery."""
-        await self._async_discover_devices()
-
         now = dt_util.now()
+        if (
+            self._last_discovery_time is None
+            or now - self._last_discovery_time >= DISCOVERY_INTERVAL
+        ):
+            await self._async_discover_devices()
+            self._last_discovery_time = now
+
         event_date = now.date()
         tzinfo = now.tzinfo
 
@@ -111,7 +119,7 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 raise ConfigEntryAuthFailed(
                     f"Authentication error for {device_id}: {err}"
                 ) from err
-            except (CannotConnect, IGuardStoveException, Exception) as err:
+            except (CannotConnect, IGuardStoveException) as err:
                 if device_id not in self._unavailable_devices:
                     _LOGGER.info("iGuardStove %s is unavailable: %s", device_id, err)
                     self._unavailable_devices.add(device_id)

@@ -657,8 +657,8 @@ async def test_event_store_load_error_and_save_error(hass: HomeAssistant) -> Non
         assert entity is not None
         assert entity.available is True
 
-        # Test save error resilience
-        await entity._async_save_store_data()
+        # Test save error resilience via StoreManager
+        entity._store_manager.update_seen("AABBCCDD1234", {"test_fp"})
 
 
 @pytest.mark.asyncio
@@ -759,3 +759,122 @@ async def test_event_dynamic_device_added(hass: HomeAssistant) -> None:
             registry.async_get_entity_id("event", DOMAIN, "NEWEVENTDEV_activity")
             is not None
         )
+
+
+@pytest.mark.asyncio
+async def test_restart_seeding_with_persisted_storage(hass: HomeAssistant) -> None:
+    """Test that current-day portal rows are seeded on first coordinator snapshot even when store has old data."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "secret",
+            "devices": [{"device_id": "AABBCCDD1234", "device_name": "Kitchen Stove"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    mock_tz = ZoneInfo("UTC")
+    today_event = StoveEvent(
+        occurred_at=datetime(2026, 7, 22, 10, 0, tzinfo=mock_tz),
+        event_type=StoveEventType.STOVE_ON,
+        raw_label="Stove Turned ON",
+    )
+
+    old_fp = "AABBCCDD1234|2026-07-21T08:00:00+00:00|stove turned off|0"
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[
+                {"device_id": "AABBCCDD1234", "device_name": "Kitchen Stove"}
+            ],
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value={
+                "device_id": "AABBCCDD1234",
+                "device_name": "Kitchen Stove",
+                "status": "Stove On",
+                "today_events": (today_event,),
+                "events_error": None,
+            },
+        ),
+        patch(
+            "homeassistant.helpers.storage.Store.async_load",
+            return_value={"version": 1, "seen_events": {"AABBCCDD1234": [old_fp]}},
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity = hass.data["entity_components"]["event"].get_entity(
+            "event.kitchen_stove_activity"
+        )
+        assert entity is not None
+
+        # Today's event should be in seen_fingerprints, without having emitted an event
+        today_fp = make_event_fingerprint("AABBCCDD1234", today_event)
+        assert today_fp in entity._seen_fingerprints
+        assert old_fp in entity._seen_fingerprints
+
+
+@pytest.mark.asyncio
+async def test_deterministic_fingerprint_pruning(hass: HomeAssistant) -> None:
+    """Test that pruning deterministically retains the newest 500 records."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "secret",
+            "devices": [{"device_id": "DEV1", "device_name": "DEV1"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[{"device_id": "DEV1", "device_name": "DEV1"}],
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value={
+                "device_id": "DEV1",
+                "device_name": "DEV1",
+                "status": "Stove Off",
+                "today_events": (),
+            },
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity = hass.data["entity_components"]["event"].get_entity(
+            "event.dev1_activity"
+        )
+        assert entity is not None
+
+        now = dt_util.now()
+        fps = set()
+        # Generate 600 fingerprints over recent hours
+        for i in range(600):
+            dt = now - timedelta(minutes=i)
+            fps.add(f"DEV1|{dt.isoformat()}|label|{i}")
+
+        entity._seen_fingerprints = fps
+        entity._prune_fingerprints()
+
+        assert len(entity._seen_fingerprints) == 500
+        # Oldest fingerprint (i=599) should have been pruned out
+        oldest_dt = now - timedelta(minutes=599)
+        oldest_fp = f"DEV1|{oldest_dt.isoformat()}|label|599"
+        assert oldest_fp not in entity._seen_fingerprints
