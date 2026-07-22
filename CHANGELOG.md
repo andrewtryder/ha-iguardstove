@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.4.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.3.0...v1.4.0) (2026-07-22)
+
+
+### Features
+
+* **brand:** update brand icons ([97e4d1d](https://github.com/andrewtryder/ha-iguardstove/commit/97e4d1dc3dd8533bbff6de4e6a19576fabafb2ad))
+* **brand:** update brand icons ([ba68630](https://github.com/andrewtryder/ha-iguardstove/commit/ba68630ad05d23d23943d7cdc5648282dd2903b9))
+* **event:** resolve event persistence defects and bump to 1.3.0 ([369672d](https://github.com/andrewtryder/ha-iguardstove/commit/369672d7f0f66717d7a460312bd4bd69ee223236))
+* **event:** resolve event persistence defects and bump to 1.3.0 ([#36](https://github.com/andrewtryder/ha-iguardstove/issues/36)) ([773e214](https://github.com/andrewtryder/ha-iguardstove/commit/773e2148b714276f5b4982dd096ffc91da90dfce))
+* improve lock idempotency, auth error handling, and coordinator resilience ([#28](https://github.com/andrewtryder/ha-iguardstove/issues/28)) ([3580f2a](https://github.com/andrewtryder/ha-iguardstove/commit/3580f2a67488e8869ff3eb1494ce99c8122417c4))
+* initial release of iGuardStove Home Assistant integration ([df68861](https://github.com/andrewtryder/ha-iguardstove/commit/df6886165b9a4a7acb7937eb1b04285e40f782fb))
+* **quality-scale:** complete remaining bronze quality scale checklist items ([381b2bb](https://github.com/andrewtryder/ha-iguardstove/commit/381b2bbae08663b6756a3316a9445b7fdcdf7ca6))
+
+
+### Bug Fixes
+
+* address Home Assistant quality scale recommendations ([2086050](https://github.com/andrewtryder/ha-iguardstove/commit/20860505ddc7436335afce16944de0cfdc8dc11f))
+* **ci:** unpin requirements_test.txt package versions to resolve pip dependency resolution conflict ([914b924](https://github.com/andrewtryder/ha-iguardstove/commit/914b92437a74469b5ccf2edf6f4575479b6f6a03))
+* **ci:** update workflow action SHAs to valid commit hashes and remove manifest core requirement ([9b4164b](https://github.com/andrewtryder/ha-iguardstove/commit/9b4164ba848fd7e10f43ab4045d813b35ef2d22a))
+* rebuild icons with solid white background; add logo to README ([c55ac8a](https://github.com/andrewtryder/ha-iguardstove/commit/c55ac8abb9e8c4e17e341fee96964f448ded8923))
+* resolve hassfest and HACS CI failures ([a702421](https://github.com/andrewtryder/ha-iguardstove/commit/a702421c00009059447b1d0f6005134c82c0cd94))
+
 ## [1.2.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.1.0...v1.2.0) (2026-07-22)
 
 
