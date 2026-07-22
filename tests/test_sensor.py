@@ -64,11 +64,7 @@ DEVICE_DATA_NO_DATA = {
 
 
 def _make_entry() -> MockConfigEntry:
-    """Create a mock ConfigEntry for testing.
-
-    Returns:
-        The created MockConfigEntry.
-    """
+    """Create a mock ConfigEntry for testing."""
     return MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -80,15 +76,7 @@ def _make_entry() -> MockConfigEntry:
 
 
 async def _setup_integration(hass: HomeAssistant, device_data: dict) -> MockConfigEntry:
-    """Helper: set up the integration with fixed device data.
-
-    Args:
-        hass: The HomeAssistant core object.
-        device_data: The mocked device data to use.
-
-    Returns:
-        The created MockConfigEntry.
-    """
+    """Helper: set up the integration with fixed device data."""
     entry = _make_entry()
     entry.add_to_hass(hass)
 
@@ -118,11 +106,7 @@ async def _setup_integration(hass: HomeAssistant, device_data: dict) -> MockConf
 
 
 async def test_status_sensor_stove_off(hass: HomeAssistant) -> None:
-    """Test the status sensor reports 'Stove Off'.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the status sensor reports 'Stove Off'."""
     await _setup_integration(hass, DEVICE_DATA_NORMAL)
     state = hass.states.get("sensor.guest_house_stove_status")
     assert state is not None
@@ -131,11 +115,7 @@ async def test_status_sensor_stove_off(hass: HomeAssistant) -> None:
 
 
 async def test_status_sensor_locked(hass: HomeAssistant) -> None:
-    """Test the status sensor reports 'Night Lock' when locked.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the status sensor reports 'Night Lock' when locked."""
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
     state = hass.states.get("sensor.guest_house_stove_status")
     assert state is not None
@@ -143,11 +123,7 @@ async def test_status_sensor_locked(hass: HomeAssistant) -> None:
 
 
 async def test_status_sensor_no_data(hass: HomeAssistant) -> None:
-    """Test the status sensor is unknown when status data is missing.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the status sensor is unknown when status data is missing."""
     await _setup_integration(hass, DEVICE_DATA_NO_DATA)
     state = hass.states.get("sensor.guest_house_stove_status")
     assert state is not None
@@ -160,11 +136,7 @@ async def test_status_sensor_no_data(hass: HomeAssistant) -> None:
 
 
 async def test_last_checkin_sensor(hass: HomeAssistant) -> None:
-    """Test the last check-in sensor returns the relative time string.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the last check-in sensor returns the relative time string."""
     await _setup_integration(hass, DEVICE_DATA_NORMAL)
     state = hass.states.get("sensor.guest_house_stove_last_check_in")
     assert state is not None
@@ -172,11 +144,7 @@ async def test_last_checkin_sensor(hass: HomeAssistant) -> None:
 
 
 async def test_last_checkin_sensor_none(hass: HomeAssistant) -> None:
-    """Test the last check-in sensor is unknown when data is absent.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the last check-in sensor is unknown when data is absent."""
     await _setup_integration(hass, DEVICE_DATA_NO_DATA)
     state = hass.states.get("sensor.guest_house_stove_last_check_in")
     assert state is not None
@@ -189,11 +157,7 @@ async def test_last_checkin_sensor_none(hass: HomeAssistant) -> None:
 
 
 async def test_temperature_sensor_fahrenheit(hass: HomeAssistant) -> None:
-    """Test the temperature sensor in Fahrenheit.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the temperature sensor in Fahrenheit."""
     from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
     hass.config.units = US_CUSTOMARY_SYSTEM
@@ -205,11 +169,7 @@ async def test_temperature_sensor_fahrenheit(hass: HomeAssistant) -> None:
 
 
 async def test_temperature_sensor_celsius(hass: HomeAssistant) -> None:
-    """Test the temperature sensor in Celsius.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the temperature sensor in Celsius."""
     await _setup_integration(hass, DEVICE_DATA_CELSIUS)
     state = hass.states.get("sensor.guest_house_stove_temperature")
     assert state is not None
@@ -218,11 +178,30 @@ async def test_temperature_sensor_celsius(hass: HomeAssistant) -> None:
 
 
 async def test_temperature_sensor_none(hass: HomeAssistant) -> None:
-    """Test the temperature sensor is unknown when value is None.
-
-    Args:
-        hass: The HomeAssistant core object.
-    """
+    """Test the temperature sensor is unknown when value is None."""
     await _setup_integration(hass, DEVICE_DATA_NO_DATA)
     state = hass.states.get("sensor.guest_house_stove_temperature")
+    assert state is not None
+    assert state.state == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Fires prevented sensor
+# ---------------------------------------------------------------------------
+
+
+async def test_fires_prevented_sensor(hass: HomeAssistant) -> None:
+    """Test the fires prevented sensor reports correct count."""
+    await _setup_integration(hass, DEVICE_DATA_NORMAL)
+    state = hass.states.get("sensor.guest_house_stove_fires_prevented")
+    assert state is not None
+    assert state.state == "3"
+    assert state.attributes.get("state_class") == "total_increasing"
+
+
+async def test_fires_prevented_sensor_none(hass: HomeAssistant) -> None:
+    """Test fires prevented sensor is unknown when data is absent."""
+    await _setup_integration(hass, DEVICE_DATA_NO_DATA)
+    state = hass.states.get("sensor.guest_house_stove_fires_prevented")
+    assert state is not None
     assert state.state == "unknown"

@@ -2,40 +2,42 @@
 
 import asyncio
 import logging
-import re
 import urllib.parse
 from typing import Any
 
 import aiohttp
 import yarl
-from bs4 import BeautifulSoup
 
 from .const import (
     BASE_URL,
+    DASHBOARD_URL,
     LOGIN_URL,
-    SEL_INFO_BLOCK,
-    SEL_INFO_TITLE,
-    SEL_INFO_VALUE,
-    SEL_LOCK_IMG,
-    SEL_STATUS_ICON,
-    SEL_STOVE_DATE,
-    SEL_STOVE_STATUS_TEXT,
-    SEL_STOVE_TITLE,
-    STATUS_MAP,
     USER_AGENT,
 )
-
-# Pre-compiled regular expressions for performance
-DEVICE_URL_RE = re.compile(r"^/devices/([A-F0-9]+)/$")
-CHECKIN_PREFIX_RE = re.compile(
-    r"^iGuardStove\s+Last\s+Checked\s+In:\s*", flags=re.IGNORECASE
+from .parser import (
+    LockFormData,
+    has_password_input,
+    normalize_status,
+    parse_dashboard_devices,
+    parse_device_page,
+    parse_lock_form,
+    parse_login_csrf,
+    parse_login_errors,
 )
-TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
+from .types import DeviceData, DeviceSummary
 
 REQUEST_TIMEOUT = 15
 
 _LOGGER = logging.getLogger(__name__)
-_SEEN_UNKNOWN_STATUSES: set[str] = set()
+
+# Re-export for backward compatibility
+__all__ = [
+    "CannotConnect",
+    "IGuardStoveClient",
+    "IGuardStoveException",
+    "InvalidAuth",
+    "normalize_status",
+]
 
 
 class IGuardStoveException(Exception):
@@ -48,31 +50,6 @@ class CannotConnect(IGuardStoveException):
 
 class InvalidAuth(IGuardStoveException):
     """Exception to indicate authentication error."""
-
-
-def normalize_status(raw: str | None) -> str | None:
-    """Map a raw portal status string to a clean, normalised label.
-
-    Checks each key in STATUS_MAP (in definition order) as a substring of the
-    lowercased raw string. Returns the first match found.
-
-    If no known pattern matches, the raw text is returned unchanged AND a
-    WARNING is logged once per distinct unknown raw status value.
-    """
-    if not raw:
-        return raw
-    lower = raw.lower()
-    for pattern, label in STATUS_MAP.items():
-        if pattern in lower:
-            return label
-    if raw not in _SEEN_UNKNOWN_STATUSES:
-        _SEEN_UNKNOWN_STATUSES.add(raw)
-        _LOGGER.warning(
-            "Unknown iGuardStove status encountered: %r — "
-            "please open an issue or add it to STATUS_MAP in const.py",
-            raw,
-        )
-    return raw  # fall back to raw text so the sensor still has a value
 
 
 class IGuardStoveClient:
@@ -187,14 +164,11 @@ class IGuardStoveClient:
         _LOGGER.debug("Fetching iGuardFire login page for CSRF token")
         _, html, _ = await self._request("GET", LOGIN_URL, is_login_page=True)
 
-        soup = BeautifulSoup(html, "html.parser")
-        csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
-        if not csrf_input or not csrf_input.get("value"):
+        csrf_token = parse_login_csrf(html)
+        if not csrf_token:
             raise CannotConnect("csrfmiddlewaretoken not found on login page")
 
-        csrf_token = csrf_input.get("value")
         _LOGGER.debug("CSRF token obtained")
-
         payload = {
             "csrfmiddlewaretoken": csrf_token,
             "login": self.username,
@@ -212,13 +186,15 @@ class IGuardStoveClient:
             is_login_page=True,
         )
 
-        # Check for specific error elements on the returned login page first
-        err_soup = BeautifulSoup(login_html, "html.parser")
-        err_el = err_soup.find(class_="errorlist") or err_soup.find(
-            class_="alert-danger"
-        )
-        if err_el:
-            raise InvalidAuth(err_el.get_text(strip=True))
+        self._validate_login_response(login_html, final_url)
+        _LOGGER.info("iGuardStove login successful (redirected to %s)", final_url)
+        return True
+
+    def _validate_login_response(self, login_html: str, final_url: yarl.URL) -> None:
+        """Validate login post response HTML and final redirect URL."""
+        err_text = parse_login_errors(login_html)
+        if err_text:
+            raise InvalidAuth(err_text)
 
         final_str = str(final_url).lower()
         if "login" in final_url.path.lower() or (
@@ -226,21 +202,14 @@ class IGuardStoveClient:
         ):
             raise InvalidAuth("Credentials were rejected")
 
-        # Positive authenticated-page invariant: reject if password input remains on page
-        if err_soup.find("input", {"type": "password"}):
+        if has_password_input(login_html):
             raise InvalidAuth("Login page still present after credentials submission")
 
-        _LOGGER.info("iGuardStove login successful (redirected to %s)", final_url)
-        return True
-
-    async def async_get_devices(self, retry_login: bool = True) -> list[dict[str, Any]]:
-        """Fetch all registered iGuardStove devices from the dashboard.
-
-        Returns a list of dicts with keys: device_id, device_name.
-        """
+    async def async_get_devices(self, retry_login: bool = True) -> list[DeviceSummary]:
+        """Fetch all registered iGuardStove devices from the dashboard."""
         _LOGGER.debug("Fetching dashboard to discover devices")
         try:
-            _, html, _ = await self._request("GET", f"{BASE_URL}/")
+            _, html, _ = await self._request("GET", DASHBOARD_URL)
         except InvalidAuth:
             if retry_login:
                 _LOGGER.info("Session expired, re-logging in")
@@ -248,31 +217,13 @@ class IGuardStoveClient:
                 return await self.async_get_devices(retry_login=False)
             raise
 
-        soup = BeautifulSoup(html, "html.parser")
-        devices = []
-        seen_device_ids = set()
-
-        for link in soup.find_all("a", href=True):
-            href: str = link["href"]
-            m = DEVICE_URL_RE.match(href)
-            if m:
-                device_id = m.group(1)
-                parent = link.find_parent(class_="stove_line")
-                name = "iGuardStove"
-                if parent:
-                    title_el = parent.find(class_=SEL_STOVE_TITLE)
-                    if title_el:
-                        name = title_el.get_text(strip=True)
-                if device_id not in seen_device_ids:
-                    seen_device_ids.add(device_id)
-                    devices.append({"device_id": device_id, "device_name": name})
-
+        devices = parse_dashboard_devices(html)
         _LOGGER.debug("Discovered %d device(s): %s", len(devices), devices)
         return devices
 
     async def async_get_device_data(
         self, device_id: str, retry_login: bool = True
-    ) -> dict[str, Any]:
+    ) -> DeviceData:
         """Fetch and parse all sensor data for a single device."""
         url = f"{BASE_URL}/devices/{device_id}/"
         _LOGGER.debug("Fetching device page: %s", url)
@@ -286,82 +237,13 @@ class IGuardStoveClient:
                 return await self.async_get_device_data(device_id, retry_login=False)
             raise
 
-        return self._parse_device_page(device_id, html)
-
-    def _parse_device_page(self, device_id: str, html: str) -> dict[str, Any]:
-        """Parse the device detail page HTML into a data dict."""
-        soup = BeautifulSoup(html, "html.parser")
-        data: dict[str, Any] = {"device_id": device_id}
-
-        # Device name
-        title_el = soup.find(class_=SEL_STOVE_TITLE)
-        data["device_name"] = (
-            title_el.get_text(strip=True) if title_el else "iGuardStove"
-        )
-
-        status_el = soup.find(class_=SEL_STOVE_STATUS_TEXT)
-        raw_status: str | None = status_el.get_text(strip=True) if status_el else None
-        data["status_raw"] = raw_status
-        data["status"] = normalize_status(raw_status)
-
-        # Determine lock state from button first (authoritative action indicator)
-        form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
-        if not form:
-            for f in soup.find_all("form"):
-                if f.find("button", {"name": ["lock", "unlock"]}):
-                    form = f
-                    break
-
-        button = form.find("button") if form else None
-        if button and button.get("name") in ("lock", "unlock"):
-            data["is_locked"] = button.get("name") == "unlock"
-        else:
-            icon_block = soup.find(class_=SEL_STATUS_ICON)
-            if icon_block:
-                lock_img = icon_block.find("img", class_=SEL_LOCK_IMG)
-                data["is_locked"] = lock_img is not None
-            else:
-                status_text = (data.get("status") or "").lower()
-                data["is_locked"] = "locked" in status_text
-
-        checkin_el = soup.find(class_=SEL_STOVE_DATE)
-        if checkin_el:
-            raw = checkin_el.get_text(strip=True)
-            raw = CHECKIN_PREFIX_RE.sub("", raw)
-            data["last_check_in"] = raw
-        else:
-            data["last_check_in"] = None
-
-        data["fires_prevented"] = None
-        data["temperature"] = None
-        data["temperature_unit"] = "°F"
-
-        for block in soup.find_all(class_=SEL_INFO_BLOCK):
-            title_el = block.find(class_=SEL_INFO_TITLE)
-            value_el = block.find(class_=SEL_INFO_VALUE)
-            if not title_el or not value_el:
-                continue
-            title_text = title_el.get_text(strip=True).lower()
-            value_text = value_el.get_text(strip=True)
-
-            if "fires" in title_text or "shut off" in title_text:
-                try:
-                    data["fires_prevented"] = int(value_text)
-                except ValueError:
-                    _LOGGER.warning("Could not parse fires_prevented: %r", value_text)
-
-            elif "temperature" in title_text:
-                m = TEMP_RE.match(value_text)
-                if m:
-                    try:
-                        data["temperature"] = float(m.group(1))
-                    except ValueError:
-                        _LOGGER.warning("Could not parse temperature: %r", value_text)
-                    unit_str = m.group(2) or "°F"
-                    data["temperature_unit"] = unit_str
-
+        data = self._parse_device_page(device_id, html)
         _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
         return data
+
+    def _parse_device_page(self, device_id: str, html: str) -> DeviceData:
+        """Parse the device detail page HTML into a DeviceData dict."""
+        return parse_device_page(device_id, html)
 
     async def async_set_lock_state(
         self, device_id: str, target_locked: bool, retry_login: bool = True
@@ -383,42 +265,12 @@ class IGuardStoveClient:
                     )
                 raise
 
-            soup = BeautifulSoup(html, "html.parser")
-            form = soup.find("form", {"id": "unlock"}) or soup.find(
-                "form", {"id": "lock"}
-            )
-            if not form:
-                for f in soup.find_all("form"):
-                    if f.find("button", {"name": ["lock", "unlock"]}):
-                        form = f
-                        break
+            try:
+                form_data = parse_lock_form(html, device_id)
+            except ValueError as ex:
+                raise CannotConnect(str(ex)) from ex
 
-            if not form:
-                raise CannotConnect(
-                    f"Lock toggle form not found on device page for {device_id}"
-                )
-
-            csrf_input = form.find("input", {"name": "csrfmiddlewaretoken"})
-            if not csrf_input or not csrf_input.get("value"):
-                raise CannotConnect(
-                    "csrfmiddlewaretoken missing or invalid in lock form"
-                )
-
-            csrf_token = csrf_input.get("value")
-
-            button = form.find("button")
-            if not button or not button.get("name"):
-                raise CannotConnect("Lock button missing or unnamed in form")
-
-            button_name = button.get("name")
-            if button_name not in ("lock", "unlock"):
-                raise CannotConnect(
-                    f"Unexpected button name {button_name!r} in lock form"
-                )
-
-            is_currently_locked = button_name == "unlock"
-
-            if is_currently_locked == target_locked:
+            if form_data.is_currently_locked == target_locked:
                 _LOGGER.debug(
                     "Device %s is already in target lock state (%s), skipping POST",
                     device_id,
@@ -426,59 +278,71 @@ class IGuardStoveClient:
                 )
                 return
 
-            expected_button_name = "lock" if target_locked else "unlock"
-            if button_name != expected_button_name:
-                raise CannotConnect(
-                    f"Form action {button_name!r} does not match required action for "
-                    f"target_locked={target_locked}"
-                )
-
-            button_value = button.get("value", device_id)
-            payload = {
-                "csrfmiddlewaretoken": csrf_token,
-                button_name: button_value,
-            }
-
-            action = form.get("action")
-            post_url = urllib.parse.urljoin(url, action) if action else url
-            post_headers = {"Referer": url}
-
-            _LOGGER.debug(
-                "Posting lock state change for device %s (target_locked=%s) to %s",
-                device_id,
-                target_locked,
-                post_url,
+            await self._execute_lock_state_change(
+                url, device_id, target_locked, form_data, retry_login
             )
 
-            try:
-                _, post_html, _ = await self._request(
-                    "POST", post_url, headers=post_headers, data=payload
-                )
-            except InvalidAuth:
-                if retry_login:
-                    _LOGGER.info("Session expired during lock POST, re-logging in")
-                    await self.async_login()
-                    return await self.async_set_lock_state(
-                        device_id, target_locked, retry_login=False
-                    )
-                raise
-
-            parsed = self._parse_device_page(device_id, post_html)
-            final_locked = parsed.get("is_locked")
-
-            if final_locked != target_locked:
-                _, refetch_html, _ = await self._request("GET", url)
-                refetch_parsed = self._parse_device_page(device_id, refetch_html)
-                final_locked = refetch_parsed.get("is_locked")
-
-            if final_locked != target_locked:
-                raise CannotConnect(
-                    f"Failed to confirm lock state transition for device {device_id}: "
-                    f"expected {target_locked}, got {final_locked}"
-                )
-
-            _LOGGER.info(
-                "Lock state for device %s successfully changed to %s",
-                device_id,
-                target_locked,
+    async def _execute_lock_state_change(
+        self,
+        url: str,
+        device_id: str,
+        target_locked: bool,
+        form_data: LockFormData,
+        retry_login: bool,
+    ) -> None:
+        """Perform lock state change HTTP POST and verify state update."""
+        expected_button_name = "lock" if target_locked else "unlock"
+        if form_data.button_name != expected_button_name:
+            raise CannotConnect(
+                f"Form action {form_data.button_name!r} does not match required action for "
+                f"target_locked={target_locked}"
             )
+
+        payload = {
+            "csrfmiddlewaretoken": form_data.csrf_token,
+            form_data.button_name: form_data.button_value,
+        }
+        post_url = (
+            urllib.parse.urljoin(url, form_data.action) if form_data.action else url
+        )
+        post_headers = {"Referer": url}
+
+        _LOGGER.debug(
+            "Posting lock state change for device %s (target_locked=%s) to %s",
+            device_id,
+            target_locked,
+            post_url,
+        )
+
+        try:
+            _, post_html, _ = await self._request(
+                "POST", post_url, headers=post_headers, data=payload
+            )
+        except InvalidAuth:
+            if retry_login:
+                _LOGGER.info("Session expired during lock POST, re-logging in")
+                await self.async_login()
+                return await self.async_set_lock_state(
+                    device_id, target_locked, retry_login=False
+                )
+            raise
+
+        parsed = parse_device_page(device_id, post_html)
+        final_locked = parsed.get("is_locked")
+
+        if final_locked != target_locked:
+            _, refetch_html, _ = await self._request("GET", url)
+            refetch_parsed = parse_device_page(device_id, refetch_html)
+            final_locked = refetch_parsed.get("is_locked")
+
+        if final_locked != target_locked:
+            raise CannotConnect(
+                f"Failed to confirm lock state transition for device {device_id}: "
+                f"expected {target_locked}, got {final_locked}"
+            )
+
+        _LOGGER.info(
+            "Lock state for device %s successfully changed to %s",
+            device_id,
+            target_locked,
+        )

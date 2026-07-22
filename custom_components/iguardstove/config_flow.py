@@ -28,8 +28,9 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     Returns a dict with 'title' (for the config entry) and 'device_ids'.
     """
+    username = data[CONF_USERNAME].strip()
     session = async_create_clientsession(hass, headers={"User-Agent": USER_AGENT})
-    client = IGuardStoveClient(session, data[CONF_USERNAME], data[CONF_PASSWORD])
+    client = IGuardStoveClient(session, username, data[CONF_PASSWORD])
 
     await client.async_login()
     devices = await client.async_get_devices()
@@ -38,7 +39,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         raise CannotConnect("No iGuardStove devices found on this account")
 
     return {
-        "title": f"iGuardStove ({data[CONF_USERNAME]})",
+        "title": f"iGuardStove ({username})",
         "device_ids": [d["device_id"] for d in devices],
         "devices": devices,
     }
@@ -56,7 +57,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            await self.async_set_unique_id(user_input[CONF_USERNAME])
+            raw_username = user_input[CONF_USERNAME]
+            normalized_username = raw_username.strip().casefold()
+            await self.async_set_unique_id(normalized_username)
             self._abort_if_unique_id_configured()
 
             try:
@@ -73,6 +76,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=info["title"],
                     data={
                         **user_input,
+                        CONF_USERNAME: raw_username.strip(),
                         "devices": info["devices"],
                     },
                 )
