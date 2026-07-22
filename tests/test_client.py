@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+from unittest.mock import AsyncMock, patch
 
 import aiohttp
 import pytest
@@ -660,3 +661,56 @@ async def test_request_unexpected_content_type(aresponses) -> None:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         with pytest.raises(CannotConnect, match="Unexpected content type"):
             await client._request("GET", f"https://{PORTAL_HOST}/devices/AABBCCDD1234/")
+
+
+@pytest.mark.asyncio
+async def test_async_get_device_data_relogin_retry(aresponses) -> None:
+    """Test async_get_device_data retries login when session expires."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(status=302, headers={"Location": "/account/login/?next=/"}),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with patch.object(client, "async_login", new_callable=AsyncMock) as mock_login:
+            data = await client.async_get_device_data("AABBCCDD1234")
+            assert data["device_id"] == "AABBCCDD1234"
+            mock_login.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_set_lock_state_relogin_retry(aresponses) -> None:
+    """Test async_set_lock_state retries login when session expires on GET."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(status=302, headers={"Location": "/account/login/?next=/"}),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with patch.object(client, "async_login", new_callable=AsyncMock) as mock_login:
+            await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
+            mock_login.assert_called_once()

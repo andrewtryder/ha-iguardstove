@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -27,6 +27,8 @@ from .entity import IGuardStoveEntity
 from .types import DeviceData
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -96,7 +98,9 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+    @callback
     def _async_add_new_devices(new_device_ids: list[str]) -> None:
+
         new_entities: list[SensorEntity] = []
         for device_id in new_device_ids:
             if device_id not in known_devices:

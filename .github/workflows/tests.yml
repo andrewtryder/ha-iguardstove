@@ -12,23 +12,31 @@ permissions: {}
 jobs:
   tests:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-    name: Python ${{ matrix.python-version }}
+    name: Python 3.14
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.14
         uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           allow-prereleases: true
 
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements_test.txt
 
-      - name: Run tests
-        run: pytest tests/ --no-cov
+      - name: Run tests with coverage
+        run: >
+          pytest
+          --cov=custom_components/iguardstove
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-fail-under=95
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format
+        run: ruff format --check .
+

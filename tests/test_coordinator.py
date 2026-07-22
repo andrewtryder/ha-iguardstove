@@ -13,6 +13,8 @@ from custom_components.iguardstove.client import (
 )
 from custom_components.iguardstove.const import DOMAIN
 from custom_components.iguardstove.coordinator import IGuardStoveDataUpdateCoordinator
+from custom_components.iguardstove.models import CoordinatorData
+from custom_components.iguardstove.sensor import SENSOR_DESCRIPTIONS, IGuardStoveSensor
 
 DEVICE_DATA_1 = {"device_id": "DEV1", "status": "Stove Off"}
 DEVICE_DATA_2 = {"device_id": "DEV2", "status": "Stove On"}
@@ -28,7 +30,9 @@ async def test_coordinator_per_device_error_isolation(hass: HomeAssistant) -> No
     client.async_get_device_data = AsyncMock()
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
-    coordinator.data = {"DEV1": DEVICE_DATA_1, "DEV2": DEVICE_DATA_2}
+    coordinator.data = CoordinatorData(
+        devices={"DEV1": DEVICE_DATA_1, "DEV2": DEVICE_DATA_2}, errors={}
+    )
 
     # DEV1 succeeds with new data, DEV2 raises CannotConnect
     new_data_1 = {"device_id": "DEV1", "status": "Night Lock"}
@@ -39,8 +43,28 @@ async def test_coordinator_per_device_error_isolation(hass: HomeAssistant) -> No
     )
 
     result = await coordinator._async_update_data()
-    assert result["DEV1"]["status"] == "Night Lock"
-    assert result["DEV2"]["status"] == "Stove On"  # Retained previous data
+    assert result.devices["DEV1"]["status"] == "Night Lock"
+    assert result.devices["DEV2"]["status"] == "Stove On"  # Retained previous data
+    assert "DEV2" in result.errors
+    assert "DEV1" not in result.errors
+
+
+@pytest.mark.asyncio
+async def test_coordinator_per_device_availability(hass: HomeAssistant) -> None:
+    """Test that entities become unavailable when an individual device fails."""
+    client = MagicMock(spec=IGuardStoveClient)
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
+
+    sensor1 = IGuardStoveSensor(coordinator, "DEV1", SENSOR_DESCRIPTIONS[0])
+    sensor2 = IGuardStoveSensor(coordinator, "DEV2", SENSOR_DESCRIPTIONS[0])
+
+    coordinator.data = CoordinatorData(
+        devices={"DEV1": DEVICE_DATA_1, "DEV2": DEVICE_DATA_2},
+        errors={"DEV2": "CannotConnect: Network drop"},
+    )
+
+    assert sensor1.available is True
+    assert sensor2.available is False
 
 
 @pytest.mark.asyncio
@@ -79,7 +103,7 @@ async def test_coordinator_dynamic_device_discovery(hass: HomeAssistant) -> None
 
     result = await coordinator._async_update_data()
     assert "DEV2" in coordinator.device_ids
-    assert "DEV2" in result
+    assert "DEV2" in result.devices
 
 
 @pytest.mark.asyncio

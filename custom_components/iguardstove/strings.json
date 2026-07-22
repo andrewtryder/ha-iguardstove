@@ -71,5 +71,14 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "authentication_failed": {
+      "message": "Authentication failed when executing stove lock command."
+    },
+    "lock_command_failed": {
+      "message": "Failed to connect to iGuardFire to execute stove lock command."
+    }
   }
 }
+

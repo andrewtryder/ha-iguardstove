@@ -26,11 +26,21 @@ class IGuardStoveEntity(CoordinatorEntity[IGuardStoveDataUpdateCoordinator]):
         self.device_id = device_id
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return (
+            super().available
+            and self.coordinator.data is not None
+            and self.device_id in self.coordinator.data.devices
+            and self.device_id not in self.coordinator.data.errors
+        )
+
+    @property
     def _device_data(self) -> DeviceData | None:
         """Return the data dict for this device from the coordinator."""
         if not self.coordinator.data:
             return None
-        return self.coordinator.data.get(self.device_id)
+        return self.coordinator.data.devices.get(self.device_id)
 
     @property
     def device_info(self) -> DeviceInfo:

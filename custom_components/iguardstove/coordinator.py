@@ -18,6 +18,7 @@ from .client import (
     InvalidAuth,
 )
 from .const import DOMAIN
+from .models import CoordinatorData
 from .types import DeviceData
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class IGuardStoveData:
 type IGuardStoveConfigEntry = ConfigEntry[IGuardStoveData]
 
 
-class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceData]]):
+class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
     """Coordinator that polls all iGuardStove devices every 60 seconds."""
 
     config_entry: IGuardStoveConfigEntry
@@ -51,6 +52,7 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceDat
         """Initialize the coordinator."""
         self.client = client
         self.device_ids = list(device_ids)
+        self._unavailable_devices: set[str] = set()
         super().__init__(
             hass,
             _LOGGER,
@@ -58,9 +60,8 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceDat
             update_interval=SCAN_INTERVAL,
         )
 
-    async def _async_update_data(self) -> dict[str, DeviceData]:
-        """Fetch data for all registered devices with error isolation and discovery."""
-        # Dynamic discovery pass
+    async def _async_discover_devices(self) -> None:
+        """Perform dynamic device discovery pass."""
         try:
             discovered = await self.client.async_get_devices()
             discovered_ids = [d["device_id"] for d in discovered]
@@ -87,27 +88,39 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceDat
         except Exception as err:
             _LOGGER.debug("Could not perform dynamic device discovery pass: %s", err)
 
+    async def _async_update_data(self) -> CoordinatorData:
+        """Fetch data for all registered devices with error isolation and discovery."""
+        await self._async_discover_devices()
+
         now = dt_util.now()
         event_date = now.date()
         tzinfo = now.tzinfo
 
-        results: dict[str, DeviceData] = {}
+        devices: dict[str, DeviceData] = {}
+        errors: dict[str, str] = {}
         for device_id in list(self.device_ids):
             try:
                 data = await self.client.async_get_device_data(
                     device_id, event_date=event_date, tzinfo=tzinfo
                 )
-                results[device_id] = data
+                devices[device_id] = data
+                if device_id in self._unavailable_devices:
+                    _LOGGER.info("iGuardStove %s is available again", device_id)
+                    self._unavailable_devices.remove(device_id)
             except InvalidAuth as err:
                 raise ConfigEntryAuthFailed(
                     f"Authentication error for {device_id}: {err}"
                 ) from err
             except (CannotConnect, IGuardStoveException, Exception) as err:
-                _LOGGER.warning("Error fetching data for device %s: %s", device_id, err)
-                if self.data and device_id in self.data:
-                    results[device_id] = self.data[device_id]
+                if device_id not in self._unavailable_devices:
+                    _LOGGER.info("iGuardStove %s is unavailable: %s", device_id, err)
+                    self._unavailable_devices.add(device_id)
+                errors[device_id] = str(err)
 
-        if not results and self.device_ids:
+                if self.data and device_id in self.data.devices:
+                    devices[device_id] = self.data.devices[device_id]
+
+        if len(errors) == len(self.device_ids) and self.device_ids:
             raise UpdateFailed("Failed to fetch data for all iGuardStove devices")
 
-        return results
+        return CoordinatorData(devices=devices, errors=errors)

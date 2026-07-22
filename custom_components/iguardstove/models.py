@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 
 class StoveEventType(StrEnum):
@@ -31,3 +32,11 @@ class StoveEvent:
     event_type: StoveEventType
     raw_label: str
     duplicate_ordinal: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CoordinatorData:
+    """Dataclass holding coordinator device data and error states per device."""
+
+    devices: dict[str, Any]
+    errors: dict[str, str]
