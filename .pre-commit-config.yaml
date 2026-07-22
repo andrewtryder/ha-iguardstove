@@ -14,3 +14,13 @@ repos:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: pytest-cov
+        name: Run pytest test suite with coverage
+        entry: python -m pytest --cov=custom_components/iguardstove --cov-fail-under=95
+        language: system
+        pass_filenames: false
+        always_run: true
+
