@@ -8,7 +8,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .client import CannotConnect, IGuardStoveClient, InvalidAuth
-from .const import DOMAIN, USER_AGENT
+from .const import USER_AGENT
 from .coordinator import (
     IGuardStoveConfigEntry,
     IGuardStoveData,
@@ -39,9 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
             f"Invalid credentials for account {entry.data[CONF_USERNAME]}"
         ) from err
     except CannotConnect as err:
-        raise ConfigEntryNotReady(
-            f"Failed to connect to iGuardFire: {err}"
-        ) from err
+        raise ConfigEntryNotReady(f"Failed to connect to iGuardFire: {err}") from err
 
     stored_devices: list[dict] = entry.data.get("devices", [])
     if stored_devices:
@@ -81,7 +79,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) -> bool:
+async def async_unload_entry(
+    hass: HomeAssistant, entry: IGuardStoveConfigEntry
+) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         await entry.runtime_data.client.async_close()

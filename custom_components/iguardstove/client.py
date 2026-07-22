@@ -221,7 +221,9 @@ class IGuardStoveClient:
             raise InvalidAuth(err_el.get_text(strip=True))
 
         final_str = str(final_url).lower()
-        if "login" in final_url.path.lower() or ("login" in final_str and "next" in final_str):
+        if "login" in final_url.path.lower() or (
+            "login" in final_str and "next" in final_str
+        ):
             raise InvalidAuth("Credentials were rejected")
 
         # Positive authenticated-page invariant: reject if password input remains on page
@@ -281,9 +283,7 @@ class IGuardStoveClient:
             if retry_login:
                 _LOGGER.info("Session expired, re-logging in")
                 await self.async_login()
-                return await self.async_get_device_data(
-                    device_id, retry_login=False
-                )
+                return await self.async_get_device_data(device_id, retry_login=False)
             raise
 
         return self._parse_device_page(device_id, html)
@@ -374,7 +374,9 @@ class IGuardStoveClient:
                 _, html, _ = await self._request("GET", url)
             except InvalidAuth:
                 if retry_login:
-                    _LOGGER.info("Session expired before lock state change, re-logging in")
+                    _LOGGER.info(
+                        "Session expired before lock state change, re-logging in"
+                    )
                     await self.async_login()
                     return await self.async_set_lock_state(
                         device_id, target_locked, retry_login=False
@@ -382,7 +384,9 @@ class IGuardStoveClient:
                 raise
 
             soup = BeautifulSoup(html, "html.parser")
-            form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
+            form = soup.find("form", {"id": "unlock"}) or soup.find(
+                "form", {"id": "lock"}
+            )
             if not form:
                 for f in soup.find_all("form"):
                     if f.find("button", {"name": ["lock", "unlock"]}):
@@ -408,9 +412,11 @@ class IGuardStoveClient:
 
             button_name = button.get("name")
             if button_name not in ("lock", "unlock"):
-                raise CannotConnect(f"Unexpected button name {button_name!r} in lock form")
+                raise CannotConnect(
+                    f"Unexpected button name {button_name!r} in lock form"
+                )
 
-            is_currently_locked = (button_name == "unlock")
+            is_currently_locked = button_name == "unlock"
 
             if is_currently_locked == target_locked:
                 _LOGGER.debug(
@@ -423,7 +429,8 @@ class IGuardStoveClient:
             expected_button_name = "lock" if target_locked else "unlock"
             if button_name != expected_button_name:
                 raise CannotConnect(
-                    f"Form action {button_name!r} does not match required action for target_locked={target_locked}"
+                    f"Form action {button_name!r} does not match required action for "
+                    f"target_locked={target_locked}"
                 )
 
             button_value = button.get("value", device_id)
@@ -466,7 +473,8 @@ class IGuardStoveClient:
 
             if final_locked != target_locked:
                 raise CannotConnect(
-                    f"Failed to confirm lock state transition for device {device_id}: expected {target_locked}, got {final_locked}"
+                    f"Failed to confirm lock state transition for device {device_id}: "
+                    f"expected {target_locked}, got {final_locked}"
                 )
 
             _LOGGER.info(

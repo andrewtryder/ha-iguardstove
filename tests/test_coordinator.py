@@ -4,14 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.iguardstove.client import (
     CannotConnect,
     IGuardStoveClient,
-    InvalidAuth,
 )
 from custom_components.iguardstove.const import DOMAIN
 from custom_components.iguardstove.coordinator import IGuardStoveDataUpdateCoordinator
@@ -24,7 +22,9 @@ DEVICE_DATA_2 = {"device_id": "DEV2", "status": "Stove On"}
 async def test_coordinator_per_device_error_isolation(hass: HomeAssistant) -> None:
     """Test that a failure on one device retains previous data without failing entire update."""
     client = MagicMock(spec=IGuardStoveClient)
-    client.async_get_devices = AsyncMock(return_value=[{"device_id": "DEV1"}, {"device_id": "DEV2"}])
+    client.async_get_devices = AsyncMock(
+        return_value=[{"device_id": "DEV1"}, {"device_id": "DEV2"}]
+    )
     client.async_get_device_data = AsyncMock()
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
@@ -32,7 +32,11 @@ async def test_coordinator_per_device_error_isolation(hass: HomeAssistant) -> No
 
     # DEV1 succeeds with new data, DEV2 raises CannotConnect
     new_data_1 = {"device_id": "DEV1", "status": "Night Lock"}
-    client.async_get_device_data.side_effect = lambda dev_id: new_data_1 if dev_id == "DEV1" else (_ for _ in ()).throw(CannotConnect("Network drop"))
+    client.async_get_device_data.side_effect = lambda dev_id: (
+        new_data_1
+        if dev_id == "DEV1"
+        else (_ for _ in ()).throw(CannotConnect("Network drop"))
+    )
 
     result = await coordinator._async_update_data()
     assert result["DEV1"]["status"] == "Night Lock"
@@ -49,7 +53,9 @@ async def test_coordinator_all_devices_fail(hass: HomeAssistant) -> None:
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
     coordinator.data = None
 
-    with pytest.raises(UpdateFailed, match="Failed to fetch data for all iGuardStove devices"):
+    with pytest.raises(
+        UpdateFailed, match="Failed to fetch data for all iGuardStove devices"
+    ):
         await coordinator._async_update_data()
 
 
@@ -100,7 +106,11 @@ async def test_dynamic_device_discovery_integration(hass: HomeAssistant) -> None
         ),
         patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
-            side_effect=lambda did, retry_login=True: {"device_id": did, "device_name": did, "status": "Stove Off"},
+            side_effect=lambda did, retry_login=True: {
+                "device_id": did,
+                "device_name": did,
+                "status": "Stove Off",
+            },
         ),
     ):
         await hass.config_entries.async_setup(entry.entry_id)

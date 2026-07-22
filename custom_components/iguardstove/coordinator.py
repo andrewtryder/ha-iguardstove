@@ -1,7 +1,7 @@
 """DataUpdateCoordinator for iGuardStove."""
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -60,12 +60,14 @@ class IGuardStoveDataUpdateCoordinator(
         )
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        """Fetch data for all registered devices with per-device error isolation and dynamic discovery."""
+        """Fetch data for all registered devices with error isolation and discovery."""
         # Dynamic discovery pass
         try:
             discovered = await self.client.async_get_devices()
             discovered_ids = [d["device_id"] for d in discovered]
-            new_device_ids = [did for did in discovered_ids if did not in self.device_ids]
+            new_device_ids = [
+                did for did in discovered_ids if did not in self.device_ids
+            ]
             if new_device_ids:
                 _LOGGER.info(
                     "Discovered %d new iGuardStove device(s): %s",

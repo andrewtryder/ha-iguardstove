@@ -2,7 +2,6 @@
 
 import asyncio
 import re
-from unittest.mock import AsyncMock, patch
 
 import aiohttp
 import pytest
@@ -219,9 +218,10 @@ def test_normalize_status_unknown_deduplication(caplog) -> None:
     res2 = normalize_status("Unique Status 999")
     assert res1 == "Unique Status 999"
     assert res2 == "Unique Status 999"
-    warnings = [rec for rec in caplog.records if "Unknown iGuardStove status" in rec.message]
+    warnings = [
+        rec for rec in caplog.records if "Unknown iGuardStove status" in rec.message
+    ]
     assert len(warnings) == 1
-
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +430,6 @@ async def test_async_get_devices_session_expired(aresponses) -> None:
         assert len(devices) == 1
 
 
-
 # ---------------------------------------------------------------------------
 # _parse_device_page tests (pure — no HTTP)
 # ---------------------------------------------------------------------------
@@ -602,7 +601,9 @@ async def test_async_set_lock_state_200_no_state_change(aresponses) -> None:
 
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
-        with pytest.raises(CannotConnect, match="Failed to confirm lock state transition"):
+        with pytest.raises(
+            CannotConnect, match="Failed to confirm lock state transition"
+        ):
             await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
 
 
