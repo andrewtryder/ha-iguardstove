@@ -3,7 +3,6 @@
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -18,6 +17,7 @@ from .client import (
     InvalidAuth,
 )
 from .const import DOMAIN
+from .types import DeviceData
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,9 +36,7 @@ class IGuardStoveData:
 type IGuardStoveConfigEntry = ConfigEntry[IGuardStoveData]
 
 
-class IGuardStoveDataUpdateCoordinator(
-    DataUpdateCoordinator[dict[str, dict[str, Any]]]
-):
+class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceData]]):
     """Coordinator that polls all iGuardStove devices every 60 seconds."""
 
     config_entry: IGuardStoveConfigEntry
@@ -59,7 +57,7 @@ class IGuardStoveDataUpdateCoordinator(
             update_interval=SCAN_INTERVAL,
         )
 
-    async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+    async def _async_update_data(self) -> dict[str, DeviceData]:
         """Fetch data for all registered devices with error isolation and discovery."""
         # Dynamic discovery pass
         try:
@@ -88,7 +86,7 @@ class IGuardStoveDataUpdateCoordinator(
         except Exception as err:
             _LOGGER.debug("Could not perform dynamic device discovery pass: %s", err)
 
-        results: dict[str, dict[str, Any]] = {}
+        results: dict[str, DeviceData] = {}
         for device_id in list(self.device_ids):
             try:
                 data = await self.client.async_get_device_data(device_id)

@@ -1,12 +1,11 @@
 """Base IGuardStoveEntity class."""
 
-from typing import Any
-
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import IGuardStoveDataUpdateCoordinator
+from .types import DeviceData
 
 
 class IGuardStoveEntity(CoordinatorEntity[IGuardStoveDataUpdateCoordinator]):
@@ -27,7 +26,7 @@ class IGuardStoveEntity(CoordinatorEntity[IGuardStoveDataUpdateCoordinator]):
         self.device_id = device_id
 
     @property
-    def _device_data(self) -> dict[str, Any] | None:
+    def _device_data(self) -> DeviceData | None:
         """Return the data dict for this device from the coordinator."""
         if not self.coordinator.data:
             return None

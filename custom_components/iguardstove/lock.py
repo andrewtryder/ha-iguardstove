@@ -59,9 +59,15 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
     Locking the entity engages the night-lock / manual lock on the physical
     device. Unlocking removes it, subject to any schedule configured on the
     device itself.
+
+    For safety against unintended remote appliance activation, this write-capable
+    entity is disabled by default in the Home Assistant Entity Registry and requires
+    explicit user opt-in to enable.
     """
 
     _attr_icon = "mdi:stove"
+    _attr_translation_key = "stove_lock"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -72,7 +78,6 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
         """Initialize the lock entity."""
         super().__init__(coordinator, device_id)
         self._client = client
-        self._attr_name = "Stove Lock"
         self._attr_unique_id = f"{device_id}_stove_lock"
 
     @property

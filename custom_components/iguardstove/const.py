@@ -12,8 +12,6 @@ BASE_URL = "https://manage.iguardfire.com"
 LOGIN_URL = f"{BASE_URL}/account/login/?next=/"
 DASHBOARD_URL = f"{BASE_URL}/"
 
-CONF_DEVICE_ID = "device_id"
-
 # Selectors
 SEL_STOVE_TITLE = "stove_title"
 SEL_STOVE_STATUS_TEXT = "stove_status_text"

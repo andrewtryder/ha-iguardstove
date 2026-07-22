@@ -11,6 +11,13 @@
 
 A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.iguardstove.com) devices. Replaces the `multiscrape` blueprint approach with a first-class HA integration that auto-discovers all stoves on your account.
 
+---
+
+> [!WARNING]
+> ### Important Safety Warning
+> This integration provides remote control capabilities over physical stove lockout hardware.
+> - **Accidental Remote Activation**: Automating stove lock/unlock operations via voice assistants (Alexa, Google Assistant, Siri) or automated triggers carries inherent safety risks.
+> - **Disabled by Default**: To prevent accidental remote physical activation, the write-capable **Stove Lock** entity is **disabled by default** in Home Assistant's Entity Registry. To use remote locking/unlocking, you must explicitly enable the entity in **Settings → Devices & Services → Entities → Stove Lock → Enable**.
 
 ---
 
@@ -18,12 +25,13 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 
 | Entity | Platform | Description |
 |---|---|---|
-| **Status** | `sensor` | Human-readable stove status (e.g. "iGuardStove is LOCKED OUT for the night") |
+| **Status** | `sensor` | Human-readable stove status (e.g. "Stove Off", "Night Lock") |
 | **Last Check-In** | `sensor` (diagnostic) | Relative time since the device last phoned home (e.g. "24 minutes ago") |
 | **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
-| **Stove Lock** | `lock` | Lock/unlock the stove from the HA UI, automations, or voice assistants |
+| **Fires Prevented** | `sensor` (diagnostic) | Total cumulative shutoff events recorded by the stove unit |
+| **Stove Lock** | `lock` (disabled by default) | Lock/unlock the stove from HA (requires explicit UI opt-in) |
 
-All stoves registered to your account are discovered automatically at setup time and updated dynamically.
+All stoves registered to your account are discovered automatically at setup time and updated dynamically during the polling cycle.
 
 ---
 
@@ -54,11 +62,11 @@ No YAML configuration is needed.
 
 ---
 
-## How It Works
+## Architecture & Limitations
 
-This integration authenticates against `manage.iguardfire.com` using a standard session-cookie + Django CSRF token login flow (the same flow used by your web browser). It scrapes the device detail pages every **60 seconds** using [BeautifulSoup](https://beautiful-soup-4.readthedocs.io/en/latest/) and exposes the data as native Home Assistant entities.
-
-The lock control (`lock` entity) safely and idempotently sets the requested target lockout state by checking fresh device page form state and verifying state postconditions.
+- **Web Scraping Dependency**: The integration authenticates against `manage.iguardfire.com` using a Django CSRF token + session cookie flow and scrapes HTML detail pages using BeautifulSoup. Because there is no official REST API, breaking changes to the portal's DOM layout may require integration updates.
+- **Polling Interval**: Device pages are polled every **60 seconds**.
+- **Discovery Limitations**: New stoves added to an existing account are discovered automatically during the regular polling loop.
 
 ### Entities per Device
 
@@ -66,7 +74,8 @@ The lock control (`lock` entity) safely and idempotently sets the requested targ
 sensor.guest_house_stove_status
 sensor.guest_house_stove_last_check_in
 sensor.guest_house_stove_temperature
-lock.guest_house_stove_stove_lock
+sensor.guest_house_stove_fires_prevented
+lock.guest_house_stove_stove_lock (disabled by default)
 ```
 
 ---
@@ -80,13 +89,14 @@ If you were previously using the `multiscrape` blueprint, remove those entries f
 | `sensor.guest_house_stove_status` | `sensor.guest_house_stove_status` |
 | `sensor.guest_house_stove_last_check_in` | `sensor.guest_house_stove_last_check_in` |
 | _(not available)_ | `sensor.guest_house_stove_temperature` |
+| _(not available)_ | `sensor.guest_house_stove_fires_prevented` |
 | _(not available)_ | `lock.guest_house_stove_stove_lock` |
 
 ---
 
 ## Security
 
-Credentials are stored in Home Assistant’s protected configuration storage and are not logged by this integration. At-rest protection depends on the security and disk-encryption configuration of the Home Assistant host.
+See [SECURITY.md](SECURITY.md) for full security policy, vulnerability reporting, and credential storage security information.
 
 ---
 

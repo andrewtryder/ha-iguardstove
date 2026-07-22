@@ -26,5 +26,26 @@
       "already_configured": "This iGuardStove account is already configured.",
       "reauth_successful": "Reauthentication was successful."
     }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "Status"
+      },
+      "last_check_in": {
+        "name": "Last check-in"
+      },
+      "temperature": {
+        "name": "Temperature"
+      },
+      "fires_prevented": {
+        "name": "Fires prevented"
+      }
+    },
+    "lock": {
+      "stove_lock": {
+        "name": "Stove lock"
+      }
+    }
   }
 }
