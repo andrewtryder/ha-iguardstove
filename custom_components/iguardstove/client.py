@@ -264,36 +264,42 @@ class IGuardStoveClient:
         """Safely and idempotently set device lock state."""
         lock = self._get_device_lock(device_id)
         async with lock:
-            url = f"{BASE_URL}/devices/{device_id}/"
-            try:
-                _, html, _ = await self._request("GET", url)
-            except InvalidAuth:
-                if retry_login:
-                    _LOGGER.info(
-                        "Session expired before lock state change, re-logging in"
-                    )
-                    await self.async_login()
-                    return await self.async_set_lock_state(
-                        device_id, target_locked, retry_login=False
-                    )
-                raise
-
-            try:
-                form_data = parse_lock_form(html, device_id)
-            except ValueError as ex:
-                raise CannotConnect(str(ex)) from ex
-
-            if form_data.is_currently_locked == target_locked:
-                _LOGGER.debug(
-                    "Device %s is already in target lock state (%s), skipping POST",
-                    device_id,
-                    target_locked,
-                )
-                return
-
-            await self._execute_lock_state_change(
-                url, device_id, target_locked, form_data, retry_login
+            await self._async_set_lock_state_internal(
+                device_id, target_locked, retry_login=retry_login
             )
+
+    async def _async_set_lock_state_internal(
+        self, device_id: str, target_locked: bool, retry_login: bool = True
+    ) -> None:
+        """Internal helper for setting lock state while holding per-device lock."""
+        url = f"{BASE_URL}/devices/{device_id}/"
+        try:
+            _, html, _ = await self._request("GET", url)
+        except InvalidAuth:
+            if retry_login:
+                _LOGGER.info("Session expired before lock state change, re-logging in")
+                await self.async_login()
+                return await self._async_set_lock_state_internal(
+                    device_id, target_locked, retry_login=False
+                )
+            raise
+
+        try:
+            form_data = parse_lock_form(html, device_id)
+        except ValueError as ex:
+            raise CannotConnect(str(ex)) from ex
+
+        if form_data.is_currently_locked == target_locked:
+            _LOGGER.debug(
+                "Device %s is already in target lock state (%s), skipping POST",
+                device_id,
+                target_locked,
+            )
+            return
+
+        await self._execute_lock_state_change(
+            url, device_id, target_locked, form_data, retry_login
+        )
 
     async def _execute_lock_state_change(
         self,
@@ -335,7 +341,7 @@ class IGuardStoveClient:
             if retry_login:
                 _LOGGER.info("Session expired during lock POST, re-logging in")
                 await self.async_login()
-                return await self.async_set_lock_state(
+                return await self._async_set_lock_state_internal(
                     device_id, target_locked, retry_login=False
                 )
             raise

@@ -1,5 +1,6 @@
 """Event platform for iGuardStove integration."""
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -33,6 +34,52 @@ def make_event_fingerprint(device_id: str, event: StoveEvent) -> str:
     return f"{device_id}|{event.occurred_at.isoformat()}|{norm_label}|{event.duplicate_ordinal}"
 
 
+class EventStoreManager:
+    """Manager for persisting and synchronizing seen event fingerprints safely across devices."""
+
+    def __init__(self, store: Store[dict[str, Any]]) -> None:
+        """Initialize the event store manager."""
+        self._store = store
+        self._lock = asyncio.Lock()
+        self._seen_events: dict[str, set[str]] = {}
+
+    async def async_load(self) -> None:
+        """Load stored fingerprints into memory safely under lock."""
+        async with self._lock:
+            try:
+                stored_data = await self._store.async_load()
+            except Exception as err:
+                _LOGGER.warning("Error loading event deduplication store: %s", err)
+                stored_data = None
+
+            if isinstance(stored_data, dict) and "seen_events" in stored_data:
+                raw_seen = stored_data.get("seen_events", {})
+                if isinstance(raw_seen, dict):
+                    self._seen_events = {
+                        dev_id: set(fps) if isinstance(fps, list) else set()
+                        for dev_id, fps in raw_seen.items()
+                    }
+
+    def get_seen(self, device_id: str) -> set[str]:
+        """Get copy of seen fingerprints for a device."""
+        return set(self._seen_events.get(device_id, set()))
+
+    def update_seen(self, device_id: str, fingerprints: set[str]) -> None:
+        """Update seen fingerprints for a device and schedule delayed save."""
+        self._seen_events[device_id] = set(fingerprints)
+        self._store.async_delay_save(self._data_to_save, delay=2.0)
+
+    @callback
+    def _data_to_save(self) -> dict[str, Any]:
+        """Return serialized data dictionary for Home Assistant Store delayed save."""
+        return {
+            "version": STORAGE_VERSION,
+            "seen_events": {
+                dev_id: list(fps) for dev_id, fps in self._seen_events.items()
+            },
+        }
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: IGuardStoveConfigEntry,
@@ -43,22 +90,12 @@ async def async_setup_entry(
     store = Store[dict[str, Any]](
         hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}_{entry.entry_id}"
     )
-
-    try:
-        stored_data = await store.async_load()
-    except Exception as err:
-        _LOGGER.warning("Error loading event deduplication store: %s", err)
-        stored_data = None
-
-    seen_events_map: dict[str, list[str]] = (
-        stored_data.get("seen_events", {}) if isinstance(stored_data, dict) else {}
-    )
+    store_manager = EventStoreManager(store)
+    await store_manager.async_load()
 
     known_devices = set(coordinator.device_ids)
     entities: list[IGuardStoveActivityEventEntity] = [
-        IGuardStoveActivityEventEntity(
-            coordinator, device_id, store, seen_events_map.get(device_id, [])
-        )
+        IGuardStoveActivityEventEntity(coordinator, device_id, store_manager)
         for device_id in coordinator.device_ids
     ]
 
@@ -75,8 +112,7 @@ async def async_setup_entry(
                     IGuardStoveActivityEventEntity(
                         coordinator,
                         device_id,
-                        store,
-                        seen_events_map.get(device_id, []),
+                        store_manager,
                     )
                 )
         if new_entities:
@@ -101,22 +137,23 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
         self,
         coordinator: IGuardStoveDataUpdateCoordinator,
         device_id: str,
-        store: Store[dict[str, Any]],
-        initial_seen_fingerprints: list[str],
+        store_manager: EventStoreManager,
     ) -> None:
         """Initialize the event entity."""
         super().__init__(coordinator, device_id)
-        self._store = store
+        self._store_manager = store_manager
         self._attr_unique_id = f"{device_id}_activity"
-        self._seen_fingerprints: set[str] = set(initial_seen_fingerprints)
-        self._has_persisted_state = bool(initial_seen_fingerprints)
+        self._seen_fingerprints: set[str] = store_manager.get_seen(device_id)
+        self._initial_seeded: bool = False
 
-        # Seed initial events if coordinator data is already available and no store exists
-        if not self._has_persisted_state and self._device_data:
+        # Seed initial events from current snapshot without firing triggers
+        if self._device_data:
             initial_events = self._device_data.get("today_events", ())
             for event in initial_events:
                 fp = make_event_fingerprint(self.device_id, event)
                 self._seen_fingerprints.add(fp)
+            self._store_manager.update_seen(self.device_id, self._seen_fingerprints)
+            self._initial_seeded = True
 
     @property
     def available(self) -> bool:
@@ -136,6 +173,16 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
 
         events = data.get("today_events", ())
 
+        # Always merge initial coordinator snapshot into seen set without emitting events
+        if not self._initial_seeded:
+            for event in events:
+                fp = make_event_fingerprint(self.device_id, event)
+                self._seen_fingerprints.add(fp)
+            self._store_manager.update_seen(self.device_id, self._seen_fingerprints)
+            self._initial_seeded = True
+            super()._handle_coordinator_update()
+            return
+
         new_events: list[StoveEvent] = []
         for event in events:
             fp = make_event_fingerprint(self.device_id, event)
@@ -144,8 +191,15 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
                 self._seen_fingerprints.add(fp)
 
         if new_events:
-            # Emit oldest-first so automations observe proper chronology
-            for event in reversed(new_events):
+            # Sort explicitly by occurred_at and duplicate_ordinal (oldest first)
+            new_events.sort(
+                key=lambda event: (
+                    event.occurred_at,
+                    event.duplicate_ordinal,
+                )
+            )
+
+            for event in new_events:
                 event_data = {
                     "occurred_at": event.occurred_at.isoformat(),
                     "raw_label": event.raw_label,
@@ -153,50 +207,32 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
                 self._trigger_event(event.event_type.value, event_data)
 
             self._prune_fingerprints()
-            self._async_save_store()
+            self._store_manager.update_seen(self.device_id, self._seen_fingerprints)
 
         super()._handle_coordinator_update()
 
     def _prune_fingerprints(self) -> None:
-        """Prune fingerprints older than 48 hours to maintain a bounded window."""
+        """Prune fingerprints older than 48 hours and retain newest 500 deterministically."""
         now = dt_util.now()
         cutoff = now - timedelta(days=2)
         retained: set[str] = set()
 
-        for fp in self._seen_fingerprints:
+        def _extract_fp_datetime(fp: str) -> datetime:
             parts = fp.split("|")
             if len(parts) >= 2:
                 try:
-                    dt = datetime.fromisoformat(parts[1])
-                    if dt >= cutoff:
-                        retained.add(fp)
-                    continue
+                    return datetime.fromisoformat(parts[1])
                 except ValueError:
                     pass
-            retained.add(fp)
+            return datetime.min
+
+        for fp in self._seen_fingerprints:
+            dt = _extract_fp_datetime(fp)
+            if dt == datetime.min or dt >= cutoff:
+                retained.add(fp)
 
         if len(retained) > 500:
-            retained = set(list(retained)[-500:])
+            sorted_fps = sorted(retained, key=lambda fp: (_extract_fp_datetime(fp), fp))
+            retained = set(sorted_fps[-500:])
 
         self._seen_fingerprints = retained
-
-    def _async_save_store(self) -> None:
-        """Save seen fingerprints to persistent storage."""
-        self.hass.async_create_task(self._async_save_store_data())
-
-    async def _async_save_store_data(self) -> None:
-        """Helper to safely save store data."""
-        try:
-            stored = await self._store.async_load()
-            data: dict[str, Any] = (
-                dict(stored) if isinstance(stored, dict) and stored else {"version": 1}
-            )
-            seen_map = data.setdefault("seen_events", {})
-            seen_map[self.device_id] = list(self._seen_fingerprints)
-            await self._store.async_save(data)
-        except Exception as err:
-            _LOGGER.warning(
-                "Failed to save event deduplication store for %s: %s",
-                self.device_id,
-                err,
-            )

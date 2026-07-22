@@ -156,3 +156,40 @@ async def test_dynamic_device_discovery_integration(hass: HomeAssistant) -> None
         assert (
             registry.async_get_entity_id("lock", DOMAIN, "DEV2_stove_lock") is not None
         )
+
+
+@pytest.mark.asyncio
+async def test_coordinator_discovery_interval_throttling(hass: HomeAssistant) -> None:
+    """Test that discovery runs at setup but is skipped on subsequent polls within 6 hours."""
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(return_value=[{"device_id": "DEV1"}])
+    client.async_get_device_data = AsyncMock(
+        return_value={"device_id": "DEV1", "status": "Stove Off"}
+    )
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    coordinator.config_entry = entry
+
+    # First update: performs discovery
+    await coordinator._async_update_data()
+    assert client.async_get_devices.call_count == 1
+
+    # Second update (e.g. 60s poll): skips discovery
+    await coordinator._async_update_data()
+    assert client.async_get_devices.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_coordinator_surfaces_unexpected_exception(hass: HomeAssistant) -> None:
+    """Test that unexpected non-client exceptions surface to caller instead of marking device unavailable."""
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(return_value=[{"device_id": "DEV1"}])
+    client.async_get_device_data = AsyncMock(
+        side_effect=ZeroDivisionError("Unexpected math error")
+    )
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+
+    with pytest.raises(ZeroDivisionError, match="Unexpected math error"):
+        await coordinator._async_update_data()

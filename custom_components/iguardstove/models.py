@@ -1,9 +1,12 @@
-"""Models for iGuardStove integration events and device data."""
+from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .types import DeviceData
 
 
 class StoveEventType(StrEnum):
@@ -38,5 +41,5 @@ class StoveEvent:
 class CoordinatorData:
     """Dataclass holding coordinator device data and error states per device."""
 
-    devices: dict[str, Any]
+    devices: dict[str, DeviceData]
     errors: dict[str, str]
