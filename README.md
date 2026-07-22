@@ -134,6 +134,18 @@ If you were previously using the `multiscrape` blueprint, remove those entries f
 
 ---
 
+## Removing the integration
+
+1. Open **Settings → Devices & services**.
+2. Select **iGuardStove**.
+3. Open the integration menu and select **Delete**.
+4. If installed manually, remove `custom_components/iguardstove`.
+5. Restart Home Assistant after removing a manual installation.
+
+Removing the integration does not modify the iGuardFire account, portal settings, schedules, or physical stove configuration.
+
+---
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for full security policy, vulnerability reporting, and credential storage security information.

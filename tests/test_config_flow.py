@@ -114,6 +114,90 @@ async def test_flow_user_unknown_exception(hass: HomeAssistant) -> None:
     assert result2["errors"] == {"base": "unknown"}
 
 
+async def test_flow_user_recovery_after_invalid_auth(hass: HomeAssistant) -> None:
+    """Test initial user flow recovers and creates entry after invalid credentials first."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # First attempt: invalid auth
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=InvalidAuth("Bad password"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "wrong"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "invalid_auth"}
+
+    # Second attempt: corrected credentials
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": ["AABBCCDD1234"],
+            "devices": MOCK_DEVICES,
+        },
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"},
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+    assert result3["title"] == "iGuardStove (user@example.com)"
+    assert result3["data"][CONF_USERNAME] == "user@example.com"
+    assert result3["data"][CONF_PASSWORD] == "secret"
+    assert result3["data"]["devices"] == MOCK_DEVICES
+
+
+async def test_flow_user_recovery_after_cannot_connect(hass: HomeAssistant) -> None:
+    """Test initial user flow recovers and creates entry after connection failure first."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # First attempt: connection error
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=CannotConnect("Connection refused"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "cannot_connect"}
+
+    # Second attempt: retry after connection restored
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": ["AABBCCDD1234"],
+            "devices": MOCK_DEVICES,
+        },
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"},
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.CREATE_ENTRY
+    assert result3["title"] == "iGuardStove (user@example.com)"
+    assert result3["data"][CONF_USERNAME] == "user@example.com"
+    assert result3["data"][CONF_PASSWORD] == "secret"
+    assert result3["data"]["devices"] == MOCK_DEVICES
+
+
 async def test_flow_duplicate_entry_aborted(hass: HomeAssistant) -> None:
     """Test that a duplicate account (same username) is aborted."""
     existing = MockConfigEntry(

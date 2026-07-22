@@ -1,0 +1,27 @@
+# Quality Scale tracking for iGuardStove integration
+# https://developers.home-assistant.io/docs/integration_quality_scale
+
+rules:
+  # Bronze Tier Rules
+  action-exceptions: done
+  brand: done
+  common-modules: done
+  config-flow-test-coverage: done
+  config-flow: done
+  dependency-transitive: done
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-setup: done
+  unique-config-entry: done
+
+  # Silver Tier Rules
+  action-setup: done
+  config-entry-unloading: done
+  log-when-unavailable: done
+  reauth-flow: done
+  test-coverage: done
