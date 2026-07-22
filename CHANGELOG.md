@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.1.0...v1.2.0) (2026-07-22)
+
+
+### Features
+
+* improve lock idempotency, auth error handling, and coordinator resilience ([#28](https://github.com/andrewtryder/ha-iguardstove/issues/28)) ([3580f2a](https://github.com/andrewtryder/ha-iguardstove/commit/3580f2a67488e8869ff3eb1494ce99c8122417c4))
+
 ## [1.1.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.0.2...v1.1.0) (2026-06-16)
 
 
