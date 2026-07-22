@@ -63,6 +63,18 @@ The integration parses the "Today's Events" table directly from the existing dev
 
 ---
 
+## Prerequisites
+
+- An active iGuardFire account.
+- At least one iGuardStove visible in the iGuardFire management portal.
+- A supported Home Assistant version.
+- Internet access from Home Assistant to `manage.iguardfire.com`.
+
+> [!NOTE]
+> This integration depends on an undocumented portal HTML interface (`manage.iguardfire.com`) and does not use an official REST API.
+
+---
+
 ## Installation
 
 ### Via HACS (recommended)

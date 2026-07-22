@@ -4,7 +4,8 @@ import logging
 from typing import Any
 
 from homeassistant.components.lock import LockEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -15,8 +16,11 @@ from .coordinator import (
     IGuardStoveDataUpdateCoordinator,
 )
 from .entity import IGuardStoveEntity
+from .exceptions import CannotConnect, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
@@ -35,7 +39,9 @@ async def async_setup_entry(
     ]
     async_add_entities(entities)
 
+    @callback
     def _async_add_new_devices(new_device_ids: list[str]) -> None:
+
         new_entities: list[LockEntity] = []
         for device_id in new_device_ids:
             if device_id not in known_devices:
@@ -90,10 +96,34 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
 
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the stove (engage lockout)."""
-        await self._client.async_set_lock_state(self.device_id, True)
+        try:
+            await self._client.async_set_lock_state(self.device_id, True)
+        except InvalidAuth as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="authentication_failed",
+            ) from err
+        except CannotConnect as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="lock_command_failed",
+            ) from err
+
         await self.coordinator.async_request_refresh()
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the stove (disengage lockout)."""
-        await self._client.async_set_lock_state(self.device_id, False)
+        try:
+            await self._client.async_set_lock_state(self.device_id, False)
+        except InvalidAuth as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="authentication_failed",
+            ) from err
+        except CannotConnect as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="lock_command_failed",
+            ) from err
+
         await self.coordinator.async_request_refresh()

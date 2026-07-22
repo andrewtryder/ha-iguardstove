@@ -33,6 +33,7 @@ TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
 
 _SEEN_UNKNOWN_STATUSES: set[str] = set()
 _SEEN_UNKNOWN_EVENT_LABELS: set[str] = set()
+_SEEN_EVENT_PARSE_ERRORS: set[str] = set()
 
 EVENT_TYPE_MAP: dict[str, StoveEventType] = {
     "activity seen": StoveEventType.ACTIVITY_SEEN,
@@ -312,7 +313,12 @@ def parse_device_page(
         data["today_events"] = parse_today_events(soup, event_date, tzinfo)
         data["events_error"] = None
     except EventParseError as err:
-        _LOGGER.warning("Event parse error for device %s: %s", device_id, err)
+        err_key = f"{device_id}:{err}"
+        if err_key not in _SEEN_EVENT_PARSE_ERRORS:
+            _SEEN_EVENT_PARSE_ERRORS.add(err_key)
+            _LOGGER.warning("Event parse error for device %s: %s", device_id, err)
+        else:
+            _LOGGER.debug("Event parse error for device %s: %s", device_id, err)
         data["today_events"] = ()
         data["events_error"] = str(err)
 

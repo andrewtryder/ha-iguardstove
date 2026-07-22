@@ -706,3 +706,56 @@ async def test_event_entity_availability_on_events_error(
         )
         assert entity is not None
         assert entity.available is False
+
+
+@pytest.mark.asyncio
+async def test_event_dynamic_device_added(hass: HomeAssistant) -> None:
+    """Test that dispatcher signal dynamically adds new event entity."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "secret",
+            "devices": [{"device_id": "AABBCCDD1234", "device_name": "Kitchen Stove"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[
+                {"device_id": "AABBCCDD1234", "device_name": "Kitchen Stove"}
+            ],
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value={
+                "device_id": "AABBCCDD1234",
+                "device_name": "Kitchen Stove",
+                "status": "Stove Off",
+            },
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        async_dispatcher_send(
+            hass,
+            f"{DOMAIN}_{entry.entry_id}_new_device",
+            ["NEWEVENTDEV"],
+        )
+        await hass.async_block_till_done()
+
+        registry = er.async_get(hass)
+        assert (
+            registry.async_get_entity_id("event", DOMAIN, "NEWEVENTDEV_activity")
+            is not None
+        )

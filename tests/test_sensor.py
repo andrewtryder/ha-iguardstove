@@ -205,3 +205,21 @@ async def test_fires_prevented_sensor_none(hass: HomeAssistant) -> None:
     state = hass.states.get("sensor.guest_house_stove_fires_prevented")
     assert state is not None
     assert state.state == "unknown"
+
+
+async def test_sensor_dynamic_device_added(hass: HomeAssistant) -> None:
+    """Test that dispatcher signal dynamically adds new sensor entities."""
+    entry = await _setup_integration(hass, DEVICE_DATA_NORMAL)
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    async_dispatcher_send(
+        hass,
+        f"{DOMAIN}_{entry.entry_id}_new_device",
+        ["NEWSENSORDEV"],
+    )
+    await hass.async_block_till_done()
+
+    assert (
+        hass.states.get("sensor.iguardstove_status") is not None
+        or hass.states.get("sensor.newsensordev_status") is not None
+    )

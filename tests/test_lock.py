@@ -2,11 +2,14 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.iguardstove.client import CannotConnect, InvalidAuth
 from custom_components.iguardstove.const import DOMAIN
 
 MOCK_DEVICES = [{"device_id": "AABBCCDD1234", "device_name": "Guest House Stove"}]
@@ -155,3 +158,114 @@ async def test_lock_entity_missing_is_locked_key(hass: HomeAssistant) -> None:
     state = hass.states.get("lock.guest_house_stove_stove_lock")
     assert state is not None
     assert state.state == "unknown"
+
+
+async def test_lock_action_cannot_connect_raises_homeassistant_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test that CannotConnect during lock action raises HomeAssistantError."""
+    await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
+            side_effect=CannotConnect("Offline"),
+        ),
+        pytest.raises(HomeAssistantError) as exc_info,
+    ):
+        await hass.services.async_call(
+            "lock",
+            "lock",
+            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            blocking=True,
+        )
+
+    assert exc_info.value.translation_key == "lock_command_failed"
+
+
+async def test_lock_action_invalid_auth_raises_homeassistant_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test that InvalidAuth during lock action raises HomeAssistantError."""
+    await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
+            side_effect=InvalidAuth("Bad auth"),
+        ),
+        pytest.raises(HomeAssistantError) as exc_info,
+    ):
+        await hass.services.async_call(
+            "lock",
+            "lock",
+            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            blocking=True,
+        )
+
+    assert exc_info.value.translation_key == "authentication_failed"
+
+
+async def test_unlock_action_cannot_connect_raises_homeassistant_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test that CannotConnect during unlock action raises HomeAssistantError."""
+    await _setup_integration(hass, DEVICE_DATA_LOCKED)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
+            side_effect=CannotConnect("Offline"),
+        ),
+        pytest.raises(HomeAssistantError) as exc_info,
+    ):
+        await hass.services.async_call(
+            "lock",
+            "unlock",
+            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            blocking=True,
+        )
+
+    assert exc_info.value.translation_key == "lock_command_failed"
+
+
+async def test_unlock_action_invalid_auth_raises_homeassistant_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test that InvalidAuth during unlock action raises HomeAssistantError."""
+    await _setup_integration(hass, DEVICE_DATA_LOCKED)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
+            side_effect=InvalidAuth("Bad auth"),
+        ),
+        pytest.raises(HomeAssistantError) as exc_info,
+    ):
+        await hass.services.async_call(
+            "lock",
+            "unlock",
+            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            blocking=True,
+        )
+
+    assert exc_info.value.translation_key == "authentication_failed"
+
+
+async def test_lock_dynamic_device_added(hass: HomeAssistant) -> None:
+    """Test that dispatcher signal dynamically adds new lock entity."""
+    entry = await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    async_dispatcher_send(
+        hass,
+        f"{DOMAIN}_{entry.entry_id}_new_device",
+        ["NEWLOCKDEV"],
+    )
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    assert (
+        registry.async_get_entity_id("lock", DOMAIN, "NEWLOCKDEV_stove_lock")
+        is not None
+    )

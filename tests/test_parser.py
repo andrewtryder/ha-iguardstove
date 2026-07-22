@@ -433,3 +433,45 @@ def test_parse_event_table_reusability() -> None:
     events = parse_event_table(table, date(2026, 7, 22), tzinfo=timezone.utc)
     assert len(events) == 1
     assert events[0].event_type == StoveEventType.STOVE_ON
+
+
+def test_parse_lock_form_unnamed_form_fallback() -> None:
+    """Test parse_lock_form falls back to scanning forms with lock/unlock button."""
+    html = """
+    <form action="/devices/DEV1/">
+      <input name="csrfmiddlewaretoken" value="csrftoken123">
+      <button name="unlock" value="DEV1">Unlock</button>
+    </form>
+    """
+    form_data = parse_lock_form(html, "DEV1")
+    assert form_data.csrf_token == "csrftoken123"
+    assert form_data.is_currently_locked is True
+
+
+def test_parse_lock_form_validation_errors() -> None:
+    """Test parse_lock_form raises ValueError on invalid HTML structure."""
+    html_no_csrf = """
+    <form id="lock">
+      <button name="lock">Lock</button>
+    </form>
+    """
+    with pytest.raises(ValueError, match="csrfmiddlewaretoken missing"):
+        parse_lock_form(html_no_csrf, "DEV1")
+
+    html_unnamed_button = """
+    <form id="lock">
+      <input name="csrfmiddlewaretoken" value="token">
+      <button>Lock</button>
+    </form>
+    """
+    with pytest.raises(ValueError, match="Lock button missing"):
+        parse_lock_form(html_unnamed_button, "DEV1")
+
+    html_bad_button = """
+    <form id="lock">
+      <input name="csrfmiddlewaretoken" value="token">
+      <button name="invalid">Lock</button>
+    </form>
+    """
+    with pytest.raises(ValueError, match="Unexpected button name"):
+        parse_lock_form(html_bad_button, "DEV1")

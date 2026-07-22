@@ -226,3 +226,176 @@ async def test_flow_reauth_invalid_auth(hass: HomeAssistant) -> None:
 
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {"base": "invalid_auth"}
+
+
+async def test_flow_reauth_cannot_connect(hass: HomeAssistant) -> None:
+    """Test reauth flow shows error when connection fails."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": entry.entry_id,
+        },
+        data={"username": "user@example.com", "password": "old_password"},
+    )
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=CannotConnect("Connection failed"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_PASSWORD: "new_password"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "cannot_connect"}
+
+
+async def test_flow_reauth_recovery_after_bad_password(hass: HomeAssistant) -> None:
+    """Test reauth flow recovers and completes after submitting invalid password first."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": entry.entry_id,
+        },
+        data={"username": "user@example.com", "password": "old_password"},
+    )
+
+    # First attempt: invalid auth
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=InvalidAuth("Bad password"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_PASSWORD: "wrong_password"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "invalid_auth"}
+
+    # Second attempt: valid credentials
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": ["AABBCCDD1234"],
+            "devices": MOCK_DEVICES,
+        },
+    ):
+        result3 = await hass.config_entries.flow.async_configure(
+            result2["flow_id"],
+            {CONF_PASSWORD: "correct_password"},
+        )
+        await hass.async_block_till_done()
+
+    assert result3["type"] is FlowResultType.ABORT
+    assert result3["reason"] == "reauth_successful"
+    assert entry.data[CONF_PASSWORD] == "correct_password"
+
+
+async def test_validate_input_success(hass: HomeAssistant) -> None:
+    """Test validate_input function with valid credentials and discovered devices."""
+    from custom_components.iguardstove.config_flow import validate_input
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+    ):
+        result = await validate_input(
+            hass, {CONF_USERNAME: "user@example.com ", CONF_PASSWORD: "secret"}
+        )
+
+    assert result["title"] == "iGuardStove (user@example.com)"
+    assert result["device_ids"] == ["AABBCCDD1234"]
+    assert result["devices"] == MOCK_DEVICES
+
+
+async def test_validate_input_no_devices(hass: HomeAssistant) -> None:
+    """Test validate_input raises CannotConnect when no devices found on account."""
+    import pytest
+
+    from custom_components.iguardstove.config_flow import validate_input
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[],
+        ),
+        pytest.raises(CannotConnect, match="No iGuardStove devices found"),
+    ):
+        await validate_input(
+            hass, {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"}
+        )
+
+
+async def test_flow_reauth_unknown_exception(hass: HomeAssistant) -> None:
+    """Test reauth flow shows unknown error on unexpected exception."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": entry.entry_id,
+        },
+        data={"username": "user@example.com", "password": "old_password"},
+    )
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=RuntimeError("Unexpected error"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_PASSWORD: "new_password"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "unknown"}

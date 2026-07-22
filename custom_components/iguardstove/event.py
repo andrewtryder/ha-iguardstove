@@ -21,6 +21,8 @@ from .models import StoveEvent, StoveEventType
 
 _LOGGER = logging.getLogger(__name__)
 
+PARALLEL_UPDATES = 0
+
 STORAGE_VERSION = 1
 STORAGE_KEY_PREFIX = f"{DOMAIN}_events_dedup"
 
@@ -62,7 +64,9 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+    @callback
     def _async_add_new_devices(new_device_ids: list[str]) -> None:
+
         new_entities: list[IGuardStoveActivityEventEntity] = []
         for device_id in new_device_ids:
             if device_id not in known_devices:
