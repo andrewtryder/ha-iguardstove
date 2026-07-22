@@ -7,6 +7,10 @@
         "data": {
           "username": "Username (Email)",
           "password": "Password"
+        },
+        "data_description": {
+          "username": "The email address used to sign in to the iGuardFire management portal.",
+          "password": "The password for the iGuardFire account."
         }
       },
       "reauth_confirm": {
@@ -14,6 +18,9 @@
         "description": "Enter the updated password for {username}.",
         "data": {
           "password": "Password"
+        },
+        "data_description": {
+          "password": "The updated password for the configured iGuardFire account."
         }
       }
     },
