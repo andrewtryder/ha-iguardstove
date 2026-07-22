@@ -2,6 +2,8 @@
 
 from typing import TypedDict
 
+from .models import StoveEvent
+
 
 class DeviceSummary(TypedDict):
     """Summary of a discovered device on the account dashboard."""
@@ -22,3 +24,5 @@ class DeviceData(TypedDict, total=False):
     temperature: float | None
     temperature_unit: str
     fires_prevented: int | None
+    today_events: tuple[StoveEvent, ...]
+    events_error: str | None

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import urllib.parse
+from datetime import date, tzinfo
 from typing import Any
 
 import aiohttp
@@ -13,6 +14,12 @@ from .const import (
     DASHBOARD_URL,
     LOGIN_URL,
     USER_AGENT,
+)
+from .exceptions import (
+    CannotConnect,
+    EventParseError,
+    IGuardStoveException,
+    InvalidAuth,
 )
 from .parser import (
     LockFormData,
@@ -33,23 +40,12 @@ _LOGGER = logging.getLogger(__name__)
 # Re-export for backward compatibility
 __all__ = [
     "CannotConnect",
+    "EventParseError",
     "IGuardStoveClient",
     "IGuardStoveException",
     "InvalidAuth",
     "normalize_status",
 ]
-
-
-class IGuardStoveException(Exception):
-    """Base exception for iGuardStove integration."""
-
-
-class CannotConnect(IGuardStoveException):
-    """Exception to indicate connection error."""
-
-
-class InvalidAuth(IGuardStoveException):
-    """Exception to indicate authentication error."""
 
 
 class IGuardStoveClient:
@@ -222,7 +218,11 @@ class IGuardStoveClient:
         return devices
 
     async def async_get_device_data(
-        self, device_id: str, retry_login: bool = True
+        self,
+        device_id: str,
+        retry_login: bool = True,
+        event_date: date | None = None,
+        tzinfo: tzinfo | None = None,
     ) -> DeviceData:
         """Fetch and parse all sensor data for a single device."""
         url = f"{BASE_URL}/devices/{device_id}/"
@@ -234,16 +234,29 @@ class IGuardStoveClient:
             if retry_login:
                 _LOGGER.info("Session expired, re-logging in")
                 await self.async_login()
-                return await self.async_get_device_data(device_id, retry_login=False)
+                return await self.async_get_device_data(
+                    device_id,
+                    retry_login=False,
+                    event_date=event_date,
+                    tzinfo=tzinfo,
+                )
             raise
 
-        data = self._parse_device_page(device_id, html)
+        data = self._parse_device_page(
+            device_id, html, event_date=event_date, tzinfo=tzinfo
+        )
         _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
         return data
 
-    def _parse_device_page(self, device_id: str, html: str) -> DeviceData:
+    def _parse_device_page(
+        self,
+        device_id: str,
+        html: str,
+        event_date: date | None = None,
+        tzinfo: tzinfo | None = None,
+    ) -> DeviceData:
         """Parse the device detail page HTML into a DeviceData dict."""
-        return parse_device_page(device_id, html)
+        return parse_device_page(device_id, html, event_date=event_date, tzinfo=tzinfo)
 
     async def async_set_lock_state(
         self, device_id: str, target_locked: bool, retry_login: bool = True

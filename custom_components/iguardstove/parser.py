@@ -2,9 +2,11 @@
 
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date, datetime, tzinfo
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from .const import (
     SEL_INFO_BLOCK,
@@ -17,6 +19,8 @@ from .const import (
     SEL_STOVE_TITLE,
     STATUS_MAP,
 )
+from .exceptions import EventParseError
+from .models import StoveEvent, StoveEventType
 from .types import DeviceData, DeviceSummary
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,6 +32,23 @@ CHECKIN_PREFIX_RE = re.compile(
 TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
 
 _SEEN_UNKNOWN_STATUSES: set[str] = set()
+_SEEN_UNKNOWN_EVENT_LABELS: set[str] = set()
+
+EVENT_TYPE_MAP: dict[str, StoveEventType] = {
+    "activity seen": StoveEventType.ACTIVITY_SEEN,
+    "night lock on": StoveEventType.NIGHT_LOCK_ON,
+    "night lock off": StoveEventType.NIGHT_LOCK_OFF,
+    "stove turned on": StoveEventType.STOVE_ON,
+    "stove turned off": StoveEventType.STOVE_OFF,
+    "motion auto resumed": StoveEventType.MOTION_AUTO_RESUMED,
+    "auto shut off": StoveEventType.AUTO_SHUT_OFF,
+    "shut off": StoveEventType.AUTO_SHUT_OFF,
+    "emergency button pressed": StoveEventType.EMERGENCY_BUTTON,
+    "temperature alert": StoveEventType.TEMPERATURE_ALERT,
+    "lost communication": StoveEventType.LOST_COMMUNICATION,
+    "iguardstove bypassed": StoveEventType.BYPASSED,
+    "no activity during the grace period": StoveEventType.NO_ACTIVITY_GRACE_PERIOD,
+}
 
 
 @dataclass(frozen=True)
@@ -64,6 +85,26 @@ def normalize_status(raw: str | None) -> str | None:
             raw,
         )
     return raw
+
+
+def normalize_event_label(raw_label: str) -> StoveEventType:
+    """Normalize raw event string to StoveEventType enum value.
+
+    Uses ' '.join(raw_label.casefold().split()) for normalization.
+    """
+    normalized_text = " ".join(raw_label.casefold().split())
+    if normalized_text in EVENT_TYPE_MAP:
+        return EVENT_TYPE_MAP[normalized_text]
+
+    if raw_label not in _SEEN_UNKNOWN_EVENT_LABELS:
+        _SEEN_UNKNOWN_EVENT_LABELS.add(raw_label)
+        _LOGGER.warning(
+            "Unknown iGuardStove event label encountered: %r — "
+            "please open an issue to add support for this label",
+            raw_label,
+        )
+
+    return StoveEventType.UNKNOWN
 
 
 def parse_login_csrf(html: str) -> str | None:
@@ -114,7 +155,124 @@ def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
     return devices
 
 
-def parse_device_page(device_id: str, html: str) -> DeviceData:
+def parse_event_table(
+    table: Tag,
+    event_date: date,
+    tzinfo: tzinfo | None = None,
+) -> tuple[StoveEvent, ...]:
+    """Parse rows from an iGuardStove event table element.
+
+    This function can be reused for both live device pages and historical daily event pages.
+    """
+    rows = table.find_all("tr")
+    if not rows:
+        return ()
+
+    # Check header row
+    header_row = rows[0]
+    header_cells = header_row.find_all(["th", "td"])
+    header_texts = [
+        " ".join(cell.get_text().casefold().split()) for cell in header_cells
+    ]
+    if len(header_texts) < 2 or header_texts[0] != "event" or header_texts[1] != "time":
+        raise EventParseError(
+            f"Unexpected event table headers: expected ['Event', 'Time'], got {header_texts!r}"
+        )
+
+    events: list[StoveEvent] = []
+    seen_ordinals: dict[tuple[datetime, str], int] = defaultdict(int)
+
+    for row in rows[1:]:
+        tds = row.find_all("td")
+        if not tds:
+            continue
+        if len(tds) != 2:
+            raise EventParseError(
+                f"Malformed event row: expected exactly 2 td cells, found {len(tds)}"
+            )
+
+        raw_label = tds[0].get_text(strip=True)
+        raw_time = tds[1].get_text(strip=True).replace("\xa0", " ")
+
+        if not raw_label or not raw_time:
+            raise EventParseError("Malformed event row: missing label or time text")
+
+        try:
+            time_obj = datetime.strptime(raw_time, "%I:%M %p").time()
+        except ValueError as err:
+            raise EventParseError(
+                f"Invalid time format in event table: {raw_time!r}"
+            ) from err
+
+        naive_dt = datetime.combine(event_date, time_obj)
+        aware_dt = naive_dt.replace(tzinfo=tzinfo) if tzinfo is not None else naive_dt
+
+        event_type = normalize_event_label(raw_label)
+        norm_label = " ".join(raw_label.casefold().split())
+
+        key = (aware_dt, norm_label)
+        ordinal = seen_ordinals[key]
+        seen_ordinals[key] += 1
+
+        events.append(
+            StoveEvent(
+                occurred_at=aware_dt,
+                event_type=event_type,
+                raw_label=raw_label,
+                duplicate_ordinal=ordinal,
+            )
+        )
+
+    return tuple(events)
+
+
+def parse_today_events(
+    soup: BeautifulSoup,
+    event_date: date,
+    tzinfo: tzinfo | None = None,
+) -> tuple[StoveEvent, ...]:
+    """Parse 'Today's Events' section from device detail page soup.
+
+    The page loads /static/tz.js, so the displayed portal time is assumed to match
+    the Home Assistant-local/account-local timezone until the portal behavior is better understood.
+    """
+    # 1. Reject login page
+    if soup.find("input", {"type": "password"}) or soup.find(class_="errorlist"):
+        raise EventParseError("Login page returned instead of device page")
+
+    # 2. Find div.title equal to "Today's Events:"
+    title_el = None
+    for div in soup.find_all("div", class_="title"):
+        norm_text = " ".join(div.get_text().casefold().split())
+        if norm_text in ("today's events:", "today's events"):
+            title_el = div
+            break
+
+    if not title_el:
+        raise EventParseError("Today's Events section missing")
+
+    # 3. Find nearest enclosing div.child
+    child_div = title_el.find_parent(class_="child")
+    if not child_div:
+        raise EventParseError("Today's Events container div.child missing")
+
+    # 4. Find table.list within that div.child
+    table = child_div.find("table", class_="list") or child_div.find("table")
+    if not table:
+        child_text = child_div.get_text().casefold()
+        if "no events" in child_text or "no activity" in child_text:
+            return ()
+        raise EventParseError("Event table missing in Today's Events section")
+
+    return parse_event_table(table, event_date, tzinfo)
+
+
+def parse_device_page(
+    device_id: str,
+    html: str,
+    event_date: date | None = None,
+    tzinfo: tzinfo | None = None,
+) -> DeviceData:
     """Parse the device detail page HTML into a DeviceData dict."""
     soup = BeautifulSoup(html, "html.parser")
     data: DeviceData = {"device_id": device_id}
@@ -146,6 +304,18 @@ def parse_device_page(device_id: str, html: str) -> DeviceData:
     data["temperature_unit"] = "°F"
 
     _parse_info_blocks(soup, data)
+
+    # Parse today's events with isolated failure domain
+    try:
+        if event_date is None:
+            event_date = date.today()
+        data["today_events"] = parse_today_events(soup, event_date, tzinfo)
+        data["events_error"] = None
+    except EventParseError as err:
+        _LOGGER.warning("Event parse error for device %s: %s", device_id, err)
+        data["today_events"] = ()
+        data["events_error"] = str(err)
+
     return data
 
 

@@ -32,7 +32,7 @@ async def test_coordinator_per_device_error_isolation(hass: HomeAssistant) -> No
 
     # DEV1 succeeds with new data, DEV2 raises CannotConnect
     new_data_1 = {"device_id": "DEV1", "status": "Night Lock"}
-    client.async_get_device_data.side_effect = lambda dev_id: (
+    client.async_get_device_data.side_effect = lambda dev_id, *args, **kwargs: (
         new_data_1
         if dev_id == "DEV1"
         else (_ for _ in ()).throw(CannotConnect("Network drop"))
@@ -67,7 +67,10 @@ async def test_coordinator_dynamic_device_discovery(hass: HomeAssistant) -> None
         return_value=[{"device_id": "DEV1"}, {"device_id": "DEV2"}]
     )
     client.async_get_device_data = AsyncMock(
-        side_effect=lambda did: {"device_id": did, "status": "Stove Off"}
+        side_effect=lambda did, *args, **kwargs: {
+            "device_id": did,
+            "status": "Stove Off",
+        }
     )
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
@@ -106,7 +109,7 @@ async def test_dynamic_device_discovery_integration(hass: HomeAssistant) -> None
         ),
         patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
-            side_effect=lambda did, retry_login=True: {
+            side_effect=lambda did, *args, **kwargs: {
                 "device_id": did,
                 "device_name": did,
                 "status": "Stove Off",

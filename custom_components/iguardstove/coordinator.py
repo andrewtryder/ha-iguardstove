@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .client import (
     CannotConnect,
@@ -86,10 +87,16 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[dict[str, DeviceDat
         except Exception as err:
             _LOGGER.debug("Could not perform dynamic device discovery pass: %s", err)
 
+        now = dt_util.now()
+        event_date = now.date()
+        tzinfo = now.tzinfo
+
         results: dict[str, DeviceData] = {}
         for device_id in list(self.device_ids):
             try:
-                data = await self.client.async_get_device_data(device_id)
+                data = await self.client.async_get_device_data(
+                    device_id, event_date=event_date, tzinfo=tzinfo
+                )
                 results[device_id] = data
             except InvalidAuth as err:
                 raise ConfigEntryAuthFailed(

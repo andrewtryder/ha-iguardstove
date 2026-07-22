@@ -22,3 +22,9 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 def auto_enable_custom_integrations(enable_custom_integrations):
     """Enable custom integrations in Home Assistant tests."""
     yield
+
+
+@pytest.fixture(autouse=True)
+def enable_socket_for_tests(socket_enabled):
+    """Enable socket for tests requiring Home Assistant client sessions."""
+    yield

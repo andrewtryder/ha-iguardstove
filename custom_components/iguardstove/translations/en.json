@@ -46,6 +46,30 @@
       "stove_lock": {
         "name": "Stove lock"
       }
+    },
+    "event": {
+      "activity": {
+        "name": "Activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "activity_seen": "Activity seen",
+              "night_lock_on": "Night lock on",
+              "night_lock_off": "Night lock off",
+              "stove_on": "Stove turned on",
+              "stove_off": "Stove turned off",
+              "motion_auto_resumed": "Motion auto resumed",
+              "auto_shut_off": "Auto shut off",
+              "emergency_button": "Emergency button pressed",
+              "temperature_alert": "Temperature alert",
+              "lost_communication": "Lost communication",
+              "bypassed": "Bypassed",
+              "no_activity_grace_period": "No activity during grace period",
+              "unknown": "Unknown event"
+            }
+          }
+        }
+      }
     }
   }
 }
