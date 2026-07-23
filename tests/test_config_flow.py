@@ -234,7 +234,7 @@ async def test_flow_duplicate_entry_aborted(hass: HomeAssistant) -> None:
 
 
 async def test_validate_input_session_close(hass: HomeAssistant) -> None:
-    """Test that validate_input uses auto_cleanup=False and closes session in finally block."""
+    """Test that validate_input uses auto_cleanup=False and detaches session in finally."""
     from custom_components.iguardstove.config_flow import validate_input
 
     with (
@@ -252,7 +252,7 @@ async def test_validate_input_session_close(hass: HomeAssistant) -> None:
     ):
         mock_session = MagicMock()
         mock_session.closed = False
-        mock_session.close = AsyncMock()
+        mock_session.detach = MagicMock()
         mock_create_session.return_value = mock_session
 
         info = await validate_input(
@@ -262,7 +262,7 @@ async def test_validate_input_session_close(hass: HomeAssistant) -> None:
 
         mock_create_session.assert_called_once()
         assert mock_create_session.call_args.kwargs.get("auto_cleanup") is False
-        mock_session.close.assert_called_once()
+        mock_session.detach.assert_called_once()
 
 
 async def test_flow_reauth_success(hass: HomeAssistant) -> None:
