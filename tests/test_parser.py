@@ -611,3 +611,85 @@ def test_parse_device_page_auth_page_without_password_element() -> None:
     """
     with pytest.raises((InvalidAuth, DevicePageParseError)):
         parse_device_page("DEV123", session_expired_notice)
+
+
+def test_parse_lock_state_all_known_statuses() -> None:
+    """Test parse_lock_state for every status pattern in STATUS_MAP."""
+    from custom_components.iguardstove.const import STATUS_MAP
+
+    locked_patterns = ("locked", "night lock")
+    unlocked_patterns = (
+        "stove is off",
+        "stove is on",
+        "stove has been shut off",
+        "stove off",
+        "stove on",
+        "stove shut off",
+        "countdown",
+        "manual timer",
+    )
+
+    for raw, _label in STATUS_MAP.items():
+        html = f"""
+        <!doctype html>
+        <html>
+        <body>
+          <span class="stove_title">Test Stove</span>
+          <span class="stove_status_text">{raw}</span>
+        </body>
+        </html>
+        """
+        state = parse_lock_state(html)
+        if any(p in raw.lower() for p in locked_patterns):
+            assert state is True, f"Expected True for {raw!r}, got {state}"
+        elif any(p in raw.lower() for p in unlocked_patterns):
+            assert state is False, f"Expected False for {raw!r}, got {state}"
+        else:
+            # Fault/ambiguous/alert/motion state must return None for appliance safety
+            assert state is None, (
+                f"Expected None for ambiguous status {raw!r}, got {state}"
+            )
+
+
+def test_parse_lock_state_conflicting_evidence() -> None:
+    """Test that conflicting form, icon, and text evidence returns None."""
+    # Form says locked (button name="unlock"), icon says unlocked (class="unlock")
+    html_conflict_form_icon = """
+    <!doctype html>
+    <html>
+    <body>
+      <form id="unlock"><button name="unlock">Unlock</button></form>
+      <div class="stove_status_icon"><img class="unlock" src="unlock.png" /></div>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_conflict_form_icon) is None
+
+    # Form says unlocked (button name="lock"), icon says locked (class="lock")
+    html_conflict_form_icon2 = """
+    <!doctype html>
+    <html>
+    <body>
+      <form id="lock"><button name="lock">Lock</button></form>
+      <div class="stove_status_icon"><img class="lock" src="lock.png" /></div>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_conflict_form_icon2) is None
+
+
+def test_parse_lock_form_suspicious_action_origin() -> None:
+    """Test parse_lock_form rejects external suspicious action URLs."""
+    html_suspicious_form = """
+    <!doctype html>
+    <html>
+    <body>
+      <form id="unlock" action="https://attacker.example.com/steal">
+        <input type="hidden" name="csrfmiddlewaretoken" value="valid_csrf_token" />
+        <button name="unlock" value="DEV123">Unlock</button>
+      </form>
+    </body>
+    </html>
+    """
+    with pytest.raises(ValueError, match="Suspicious form action origin"):
+        parse_lock_form(html_suspicious_form, "DEV123")

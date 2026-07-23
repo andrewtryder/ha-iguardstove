@@ -19,7 +19,8 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 > ### Important Safety Warning
 > This integration provides remote control capabilities over physical stove lockout hardware.
 > - **Accidental Remote Activation**: Automating stove lock/unlock operations via voice assistants (Alexa, Google Assistant, Siri) or automated triggers carries inherent safety risks.
-> - **Disabled by Default**: To prevent accidental remote physical activation, the write-capable **Stove Lock** entity is **disabled by default** in Home Assistant's Entity Registry. To use remote locking/unlocking, you must explicitly enable the entity in **Settings → Devices & Services → Entities → Stove Lock → Enable**.
+> - **Disabled by Default**: To prevent accidental remote physical activation, the write-capable **Stove Lock** entity is **disabled by default** in Home Assistant's Entity Registry. To use remote control, you must explicitly enable the entity in **Settings → Devices & Services → Entities → Stove Lock → Enable**.
+> - **Separate Remote-Unlock Permission**: Enabling the entity allows remote locking. For safety, **Remote Unlock** remains disabled by default even when the entity is enabled. Unlocking the stove requires enabling **Allow remote disengagement of stove lockout (Remote Unlock)** in **Settings → Devices & Services → iGuardStove → Configure**.
 
 ---
 
@@ -31,7 +32,7 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 | **Last Check-In** | `sensor` (diagnostic) | Relative time since the device last phoned home (e.g. "24 minutes ago") |
 | **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
 | **Fires Prevented** | `sensor` (diagnostic) | Total cumulative shutoff events recorded by the stove unit |
-| **Stove Lock** | `lock` (disabled by default) | Lock/unlock the stove from HA (requires explicit UI opt-in) |
+| **Stove Lock** | `lock` (disabled by default) | Remote lock/unlock from HA (requires entity opt-in and separate Options Flow permission for unlock) |
 | **Activity** | `event` | Portal activity events (e.g. Activity Seen, Night Lock ON/OFF, Stove Turned ON/OFF) detected during the 60-second polling cycle |
 
 All stoves registered to your account are discovered automatically at setup time, with dynamic discovery running every 6 hours and state updates polled every 60 seconds.

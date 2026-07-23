@@ -79,12 +79,28 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "iGuardStove Options",
+        "data": {
+          "allow_remote_unlock": "Allow remote disengagement of stove lockout (Remote Unlock)"
+        },
+        "data_description": {
+          "allow_remote_unlock": "Enabling remote unlock allows disengaging physical stove lockouts from Home Assistant controls, automations, and scripts."
+        }
+      }
+    }
+  },
   "exceptions": {
     "authentication_failed": {
       "message": "Authentication failed when executing stove lock command."
     },
     "lock_command_failed": {
       "message": "Failed to connect to iGuardFire to execute stove lock command."
+    },
+    "remote_unlock_disabled": {
+      "message": "Remote unlock is disabled in integration options. Enable it in the integration options before attempting to unlock."
     }
   }
 }

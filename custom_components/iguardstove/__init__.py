@@ -1,6 +1,7 @@
 """The iGuardStove integration."""
 
 import logging
+from typing import Any
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
@@ -84,4 +85,16 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: IGuardStoveConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok and entry.runtime_data and entry.runtime_data.client:
+        await entry.runtime_data.client.close()
+    return unload_ok
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: IGuardStoveConfigEntry,
+    device_entry: Any,
+) -> bool:
+    """Remove a config entry device from Home Assistant."""
+    return True

@@ -84,6 +84,11 @@ class IGuardStoveClient:
         """Return the current authentication generation count."""
         return self._auth_generation
 
+    async def close(self) -> None:
+        """Close the underlying client session."""
+        if self._session and not bool(getattr(self._session, "closed", False)):
+            await self._session.close()
+
     def _get_device_lock(self, device_id: str) -> asyncio.Lock:
         """Get or create per-device asyncio lock."""
         if device_id not in self._device_locks:
@@ -101,6 +106,67 @@ class IGuardStoveClient:
                 f"URL origin mismatch: expected {expected.host}, got {target.host}"
             )
 
+    def _check_response_status(
+        self,
+        resp: aiohttp.ClientResponse,
+        url: str,
+        is_login_page: bool,
+        attempt: int,
+        max_attempts: int,
+    ) -> bool:
+        """Check response status and redirect hops. Returns True if request should retry."""
+        for hist_resp in resp.history:
+            self._validate_origin(hist_resp.url)
+
+        final_url = resp.url
+        self._validate_origin(final_url)
+
+        final_str = str(final_url).lower()
+        if not is_login_page and (
+            "login" in final_url.path.lower() or "login" in final_str
+        ):
+            raise InvalidAuth("Session expired or redirected to login page")
+
+        if resp.status in (401, 403):
+            raise InvalidAuth(
+                f"Authentication failure (HTTP {resp.status}) accessing {url}"
+            )
+
+        if resp.status in (429, 500, 502, 503, 504) and attempt < max_attempts - 1:
+            return True
+
+        if resp.status != 200:
+            raise CannotConnect(f"HTTP request to {url} returned status {resp.status}")
+
+        content_type = resp.headers.get("Content-Type", "").lower()
+        if (
+            content_type
+            and "text/html" not in content_type
+            and "application/xhtml+xml" not in content_type
+            and "text/plain" not in content_type
+        ):
+            raise CannotConnect(f"Unexpected content type {content_type!r} from {url}")
+
+        return False
+
+    async def _read_response_html(
+        self, resp: aiohttp.ClientResponse, max_html_size: int, url: str
+    ) -> str:
+        """Read response body in chunks and enforce max size limit."""
+        body_bytes = bytearray()
+        while len(body_bytes) <= max_html_size:
+            chunk = await resp.content.read(65536)
+            if not chunk:
+                break
+            body_bytes.extend(chunk)
+
+        if len(body_bytes) > max_html_size:
+            raise CannotConnect(
+                f"Response body from {url} exceeds maximum size limit of {max_html_size} bytes"
+            )
+
+        return body_bytes.decode("utf-8", errors="replace")
+
     async def _request(
         self,
         method: str,
@@ -111,51 +177,45 @@ class IGuardStoveClient:
         allow_redirects: bool = True,
         is_login_page: bool = False,
     ) -> tuple[int, str, yarl.URL]:
-        """Shared request helper validating status, origin, content-type, login redirects, and timeout."""
+        """Shared request helper validating status, origin, content-type, login redirects, backoff, and max size."""
         self._validate_origin(url)
         req_headers = {**self._headers, **(headers or {})}
 
-        try:
-            async with asyncio.timeout(REQUEST_TIMEOUT):
-                async with self._session.request(
-                    method,
-                    url,
-                    headers=req_headers,
-                    data=data,
-                    allow_redirects=allow_redirects,
-                ) as resp:
-                    final_url = resp.url
-                    self._validate_origin(final_url)
+        max_attempts = 3
+        max_html_size = 5 * 1024 * 1024  # 5MB limit
 
-                    # Detect redirect to login page for non-login requests
-                    final_str = str(final_url).lower()
-                    if not is_login_page and (
-                        "login" in final_url.path.lower() or "login" in final_str
-                    ):
-                        raise InvalidAuth("Session expired or redirected to login page")
+        for attempt in range(max_attempts):
+            try:
+                async with asyncio.timeout(REQUEST_TIMEOUT):
+                    async with self._session.request(
+                        method,
+                        url,
+                        headers=req_headers,
+                        data=data,
+                        allow_redirects=allow_redirects,
+                    ) as resp:
+                        if self._check_response_status(
+                            resp, url, is_login_page, attempt, max_attempts
+                        ):
+                            await asyncio.sleep(0.5 * (2**attempt))
+                            continue
 
-                    if resp.status != 200:
-                        raise CannotConnect(
-                            f"HTTP request to {url} returned status {resp.status}"
-                        )
+                        html = await self._read_response_html(resp, max_html_size, url)
+                        return resp.status, html, resp.url
+            except InvalidAuth, CannotConnect:
+                raise
+            except asyncio.TimeoutError as ex:
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    continue
+                raise CannotConnect(f"Timeout connecting to {url}") from ex
+            except aiohttp.ClientError as ex:
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    continue
+                raise CannotConnect(f"Network error during {method} to {url}") from ex
 
-                    content_type = resp.headers.get("Content-Type", "").lower()
-                    if (
-                        content_type
-                        and "text/html" not in content_type
-                        and "application/xhtml+xml" not in content_type
-                        and "text/plain" not in content_type
-                    ):
-                        raise CannotConnect(
-                            f"Unexpected content type {content_type!r} from {url}"
-                        )
-
-                    html = await resp.text()
-                    return resp.status, html, final_url
-        except asyncio.TimeoutError as ex:
-            raise CannotConnect(f"Timeout connecting to {url}") from ex
-        except aiohttp.ClientError as ex:
-            raise CannotConnect(f"Network error during {method} to {url}") from ex
+        raise CannotConnect(f"Request to {url} failed after retries")
 
     async def async_login(self, current_generation: int | None = None) -> bool:
         """Log in to the iGuardFire management portal with account-level lock serialization."""
@@ -200,9 +260,8 @@ class IGuardStoveClient:
             self._validate_login_response(login_html, final_url)
             self._auth_generation += 1
             _LOGGER.info(
-                "iGuardStove login successful (generation %d, redirected to %s)",
+                "iGuardStove login successful (generation %d)",
                 self._auth_generation,
-                final_url,
             )
             return True
 
@@ -235,7 +294,7 @@ class IGuardStoveClient:
             raise
 
         devices = parse_dashboard_devices(html)
-        _LOGGER.debug("Discovered %d device(s): %s", len(devices), devices)
+        _LOGGER.debug("Discovered %d device(s)", len(devices))
         return devices
 
     async def async_get_device_data(

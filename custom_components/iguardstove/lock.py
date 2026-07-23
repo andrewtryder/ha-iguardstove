@@ -10,7 +10,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .client import IGuardStoveClient
-from .const import DOMAIN
+from .const import CONF_ALLOW_REMOTE_UNLOCK, DOMAIN
 from .coordinator import (
     IGuardStoveConfigEntry,
     IGuardStoveDataUpdateCoordinator,
@@ -87,6 +87,11 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
         self._attr_unique_id = f"{device_id}_stove_lock"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available and lock state is non-indeterminate."""
+        return super().available and self.is_locked is not None
+
+    @property
     def is_locked(self) -> bool | None:
         """Return True if the stove is currently locked out."""
         data = self._device_data
@@ -113,6 +118,15 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the stove (disengage lockout)."""
+        allow_unlock = self.coordinator.config_entry.options.get(
+            CONF_ALLOW_REMOTE_UNLOCK, False
+        )
+        if not allow_unlock:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="remote_unlock_disabled",
+            )
+
         try:
             await self._client.async_set_lock_state(self.device_id, False)
         except InvalidAuth as err:
