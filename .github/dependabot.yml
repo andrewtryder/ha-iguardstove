@@ -6,7 +6,7 @@ updates:
     schedule:
       interval: "weekly"
 
-  # Keep Python dependencies (requirements.txt and requirements_test.txt) up-to-date
+  # Keep Python dependencies and test constraints up-to-date
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
