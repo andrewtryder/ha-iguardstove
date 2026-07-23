@@ -83,16 +83,28 @@ async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
 
 
 def test_sanitize_nested_helper() -> None:
-    """Test _sanitize_nested helper with lists, dicts, and non-string primitives."""
+    """Test _sanitize_nested helper with lists, dicts, tuples, sets, and non-string primitives."""
     from custom_components.iguardstove.diagnostics import _sanitize_nested
 
     raw_data = {
         "username": "secret_user",
         "nested_list": ["secret_user", 123, True, None],
+        "nested_dict": {
+            "sub_key": "secret_user",
+            "url": "https://manage.iguardfire.com/devices/DEV123/",
+        },
+        "nested_tuple": ("secret_user", "safe_val"),
         "other": "hello secret_user world",
     }
-    sanitized = _sanitize_nested(raw_data, ("secret_user",))
+    sanitized = _sanitize_nested(
+        raw_data, ("secret_user", "https://manage.iguardfire.com/devices/DEV123/")
+    )
     assert sanitized["username"] == "**REDACTED**"
+    assert sanitized["nested_list"][0].startswith("[REDACTED_")
     assert sanitized["nested_list"][1] == 123
     assert sanitized["nested_list"][2] is True
     assert sanitized["nested_list"][3] is None
+    assert sanitized["nested_dict"]["sub_key"].startswith("[REDACTED_")
+    assert sanitized["nested_dict"]["url"].startswith("[REDACTED_")
+    assert sanitized["nested_tuple"][0].startswith("[REDACTED_")
+    assert sanitized["nested_tuple"][1] == "safe_val"

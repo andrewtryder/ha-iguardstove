@@ -289,3 +289,82 @@ async def test_coordinator_empty_discovery_retains_devices(hass: HomeAssistant) 
     success = await coordinator._async_discover_devices(now)
     assert success is True
     assert coordinator.device_ids == ["DEV1", "DEV2"]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_exponential_backoff_progression(hass: HomeAssistant) -> None:
+    """Test dynamic discovery exponential backoff delay calculation and reset."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    client = MagicMock(spec=IGuardStoveClient)
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    now = dt_util.now()
+
+    coordinator._last_successful_discovery = now - timedelta(hours=7)
+    coordinator._last_discovery_attempt = now
+
+    # Initial state: 0 failures, should attempt discovery
+    assert coordinator._should_attempt_discovery(now) is True
+
+    # 1 failure: backoff is 5 minutes (5 * 2^0)
+    coordinator._discovery_fail_count = 1
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=4)) is False
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=5)) is True
+
+    # 2 failures: backoff is 10 minutes (5 * 2^1)
+    coordinator._discovery_fail_count = 2
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=9)) is False
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=10)) is True
+
+    # 3 failures: backoff is 20 minutes (5 * 2^2)
+    coordinator._discovery_fail_count = 3
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=19)) is False
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=20)) is True
+
+    # 10 failures: max backoff capped at 360 minutes (6 hours)
+    coordinator._discovery_fail_count = 10
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=359)) is False
+    assert coordinator._should_attempt_discovery(now + timedelta(minutes=360)) is True
+
+
+@pytest.mark.asyncio
+async def test_coordinator_stale_device_reconciliation_including_final_device(
+    hass: HomeAssistant,
+) -> None:
+    """Test device registry cleanup when devices (and the final device) are removed from portal."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.util import dt as dt_util
+
+    client = MagicMock(spec=IGuardStoveClient)
+    # Portal now returns only DEV2 (DEV1 removed)
+    client.async_get_devices = AsyncMock(return_value=[{"device_id": "DEV2"}])
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
+    dev_reg = dr.async_get(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    coordinator.config_entry = entry
+
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "DEV1")},
+        name="Stove 1",
+    )
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "DEV2")},
+        name="Stove 2",
+    )
+
+    now = dt_util.now()
+    # Pass 1: DEV1 missing, count becomes 1
+    await coordinator._async_discover_devices(now)
+    assert "DEV1" in coordinator.device_ids
+
+    # Pass 2: DEV1 missing again, DEV1 device entry removed from registry
+    await coordinator._async_discover_devices(now)
+    assert "DEV1" not in coordinator.device_ids
+    assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV1")}) is None
+    assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV2")}) is not None

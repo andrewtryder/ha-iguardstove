@@ -693,3 +693,138 @@ def test_parse_lock_form_suspicious_action_origin() -> None:
     """
     with pytest.raises(ValueError, match="Suspicious form action origin"):
         parse_lock_form(html_suspicious_form, "DEV123")
+
+
+def test_parse_lock_state_all_conflicting_combinations() -> None:
+    """Test text vs form conflict, text vs icon conflict, and 3-way conflicting states."""
+    # Text says unlocked ("iGuardStove is off"), form says locked (button name="unlock")
+    html_text_form_conflict = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_status_text">iGuardStove is off</span>
+      <form id="unlock"><button name="unlock">Unlock</button></form>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_text_form_conflict) is None
+
+    # Text says locked ("Night Lock"), icon says unlocked (class="unlock")
+    html_text_icon_conflict = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_status_text">Night Lock</span>
+      <div class="stove_status_icon"><img class="unlock" src="unlock.png" /></div>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_text_icon_conflict) is None
+
+    # Form says lock (unlocked), Text says locked ("Night Lock"), Icon says unlocked ("unlock")
+    html_3way_conflict = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_status_text">Night Lock</span>
+      <form id="lock"><button name="lock">Lock</button></form>
+      <div class="stove_status_icon"><img class="unlock" src="unlock.png" /></div>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_3way_conflict) is None
+
+
+def test_ambiguous_safety_states_never_return_false() -> None:
+    """Safety invariant: fault, alert, and unknown states return None, never False (unlocked)."""
+    ambiguous_statuses = [
+        "Lost Communication",
+        "iGuardStove Bypassed",
+        "System Alert Active",
+        "Emergency Button Pressed",
+        "Unknown Fault State",
+        "Grace Period Expired",
+        "Offline",
+    ]
+
+    for raw in ambiguous_statuses:
+        html = f"""
+        <!doctype html>
+        <html>
+        <body>
+          <span class="stove_title">Main Kitchen Stove</span>
+          <span class="stove_status_text">{raw}</span>
+          <span class="stove_date">iGuardStove Last Checked In: 10 minutes ago</span>
+        </body>
+        </html>
+        """
+        parsed_lock = parse_lock_state(html)
+        assert parsed_lock is None, (
+            f"Status {raw!r} returned {parsed_lock!r} instead of None"
+        )
+
+        data = parse_device_page("DEV123", html)
+        assert data["is_locked"] is None, (
+            f"Device data is_locked for {raw!r} returned {data['is_locked']!r} instead of None"
+        )
+        assert data["is_locked"] is not False
+
+
+def test_negative_temps_localized_numbers_and_counters() -> None:
+    """Test negative temperatures, localized float separators, formatted counters, and alternate device IDs."""
+    html = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Freezer Stove</span>
+      <span class="stove_status_text">iGuardStove is off</span>
+      <span class="stove_date">iGuardStove Last Checked In: 5 minutes ago</span>
+      <div class="info_block">
+        <span class="info_title">Potential Fires Prevented</span>
+        <span class="info_value">1,234</span>
+      </div>
+      <div class="info_block">
+        <span class="info_title">Temperature</span>
+        <span class="info_value">-12,5°C</span>
+      </div>
+    </body>
+    </html>
+    """
+    data = parse_device_page("AABB-CCDD-1234", html)
+    assert data["fires_prevented"] == 1234
+    assert data["temperature"] == -12.5
+    assert data["temperature_unit"] == "°C"
+    assert data["device_id"] == "AABB-CCDD-1234"
+
+
+def test_events_midnight_date_rollover_and_dst() -> None:
+    """Test event parsing at 12:00 AM midnight, date boundaries, and DST transitions."""
+    from datetime import date
+    from zoneinfo import ZoneInfo
+
+    from bs4 import BeautifulSoup
+
+    html = """
+    <div class="child">
+      <div class="title">Today's Events:</div>
+      <table class="list">
+        <tr><th>Event</th><th>Time</th></tr>
+        <tr><td>Stove Turned Off</td><td>12:00 AM</td></tr>
+        <tr><td>Activity Seen</td><td>12:05 AM</td></tr>
+        <tr><td>Night Lock ON</td><td>11:59 PM</td></tr>
+      </table>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    tz = ZoneInfo("America/New_York")
+    event_date = date(2026, 3, 8)  # DST spring forward date
+
+    events = parse_today_events(soup, event_date, tzinfo=tz)
+    assert len(events) == 3
+    assert events[0].occurred_at.hour == 0
+    assert events[0].occurred_at.minute == 0
+    assert events[1].occurred_at.hour == 0
+    assert events[1].occurred_at.minute == 5
+    assert events[2].occurred_at.hour == 23
+    assert events[2].occurred_at.minute == 59
+    assert events[0].occurred_at.tzinfo == tz

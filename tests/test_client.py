@@ -1009,3 +1009,48 @@ async def test_async_set_lock_state_post_session_expired(aresponses) -> None:
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
+
+
+@pytest.mark.asyncio
+async def test_client_http_429_502_503_504_status_handling(aresponses) -> None:
+    """Test handling of HTTP 429 rate limit and 502/503/504 server gateway errors."""
+    for status_code in (429, 502, 503, 504):
+        for _ in range(3):
+            aresponses.add(
+                PORTAL_HOST,
+                "/",
+                "GET",
+                aresponses.Response(status=status_code, text="Service Unavailable"),
+            )
+
+        async with aiohttp.ClientSession() as session:
+            client = IGuardStoveClient(session, "user@example.com", "secret")
+            with pytest.raises(CannotConnect, match="status"):
+                await client.async_get_devices(retry_login=False)
+
+
+@pytest.mark.asyncio
+async def test_client_cross_origin_redirect_prevention(aresponses) -> None:
+    """Test that cross-origin or insecure redirect locations raise CannotConnect/InvalidAuth."""
+    # 1. Login page GET
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    # 2. Login POST returns 302 to external cross-origin URL
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "POST",
+        aresponses.Response(
+            status=302,
+            headers={"Location": "https://evil-phishing.example.com/login"},
+        ),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises((CannotConnect, InvalidAuth)):
+            await client.async_login()

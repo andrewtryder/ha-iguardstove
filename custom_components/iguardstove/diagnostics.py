@@ -48,8 +48,9 @@ def _sanitize_nested(obj: Any, sensitive_tokens: tuple[str, ...]) -> Any:
             else:
                 res[k] = _sanitize_nested(v, sensitive_tokens)
         return res
-    elif isinstance(obj, list):
-        return [_sanitize_nested(item, sensitive_tokens) for item in obj]
+    elif isinstance(obj, list | tuple):
+        sanitized = [_sanitize_nested(item, sensitive_tokens) for item in obj]
+        return tuple(sanitized) if isinstance(obj, tuple) else sanitized
     elif isinstance(obj, str):
         s = _sanitize_string(obj)
         for tok in sensitive_tokens:
