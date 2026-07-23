@@ -197,13 +197,21 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         return (now - self._last_discovery_attempt) >= backoff_delay
 
     async def async_rediscover_now(self) -> list[DeviceSummary]:
-        """Run a one-shot discovery pass and persist results."""
+        """Run a one-shot discovery pass and persist results.
+
+        Raises InvalidAuth, CannotConnect, or DashboardParseError on failure so
+        the options flow can surface typed errors without saving options.
+        """
         now = dt_util.now()
-        await self._async_discover_devices(now)
+        success = await self._async_discover_devices(now, raise_on_error=True)
+        if not success:
+            raise CannotConnect("Device rediscovery failed")
         stored = self.config_entry.data.get("devices", []) if self.config_entry else []
         return list(stored) if isinstance(stored, list) else []
 
-    async def _async_discover_devices(self, now: datetime) -> bool:
+    async def _async_discover_devices(
+        self, now: datetime, *, raise_on_error: bool = False
+    ) -> bool:
         """Perform dynamic device discovery pass with controlled backoff and exception scoping."""
         self._last_discovery_attempt = now
         try:
@@ -238,6 +246,8 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         except InvalidAuth as err:
             self._empty_discovery_count = 0
             self._discovery_fail_count += 1
+            if raise_on_error:
+                raise
             raise ConfigEntryAuthFailed(
                 f"Authentication error during discovery pass: {err}"
             ) from err
@@ -249,6 +259,8 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 self._discovery_fail_count,
                 err,
             )
+            if raise_on_error:
+                raise
             return False
 
     def async_prepare_device_removal(self, device_id: str) -> bool:

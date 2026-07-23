@@ -82,6 +82,70 @@ async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
     assert BASE_URL not in diag_str
 
 
+async def test_diagnostics_error_strings_fully_redacted(hass: HomeAssistant) -> None:
+    """Coordinator error strings must scrub device IDs, names, credentials, and portal URLs."""
+    from custom_components.iguardstove.models import CoordinatorData
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="iGuardStove (sensitive_user@example.com)",
+        data={
+            CONF_USERNAME: "sensitive_user@example.com",
+            CONF_PASSWORD: "super_secret_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value=MOCK_DEVICE_DATA,
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_url = f"{BASE_URL}/devices/AABBCCDD1234/"
+    entry.runtime_data.coordinator.data = CoordinatorData(
+        devices={
+            "AABBCCDD1234": {
+                **MOCK_DEVICE_DATA,
+                "status": "Stove Off",
+            }
+        },
+        errors={
+            "AABBCCDD1234": (
+                "CannotConnect: HTTP request to "
+                f"{device_url} returned status 503 for Guest House Stove "
+                "(user=sensitive_user@example.com password=super_secret_password)"
+            ),
+        },
+    )
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    expected_anon_id = hashlib.sha256(b"AABBCCDD1234").hexdigest()[:8]
+    error_text = diag["coordinator"]["data"]["errors"][expected_anon_id]
+    assert "HTTP request" in error_text
+    assert "returned status 503" in error_text
+
+    diag_str = json.dumps(diag)
+    assert "AABBCCDD1234" not in diag_str
+    assert "Guest House Stove" not in diag_str
+    assert "sensitive_user@example.com" not in diag_str
+    assert "super_secret_password" not in diag_str
+    assert device_url not in diag_str
+    assert BASE_URL not in diag_str
+
+
 def test_sanitize_nested_helper() -> None:
     """Test _sanitize_nested helper with lists, dicts, tuples, sets, and non-string primitives."""
     from custom_components.iguardstove.diagnostics import _sanitize_nested

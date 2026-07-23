@@ -184,6 +184,6 @@ Removing the integration does not modify the iGuardFire account, portal settings
 ## Project info
 
 - **Security** — See [SECURITY.md](SECURITY.md) for vulnerability reporting and credential storage.
-- **Contributing** — See [CONTRIBUTING.md](CONTRIBUTING.md). [![tests](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/tests.yml/badge.svg)](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/tests.yml)
+- **Contributing** — See [CONTRIBUTING.md](CONTRIBUTING.md). [![CI](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/ci.yml)
 - **Architecture** — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **License** — [MIT](LICENSE)

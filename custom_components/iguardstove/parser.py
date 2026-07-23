@@ -31,7 +31,7 @@ from .types import DeviceData, DeviceSummary
 
 _LOGGER = logging.getLogger(__name__)
 
-DEVICE_URL_RE = re.compile(r"^/devices/([A-F0-9]+)/$")
+DEVICE_URL_RE = re.compile(r"^/devices/([A-Fa-f0-9]+(?:-[A-Fa-f0-9]+)*)/$")
 CHECKIN_PREFIX_RE = re.compile(
     r"^iGuardStove\s+Last\s+Checked\s+In:\s*", flags=re.IGNORECASE
 )
@@ -156,7 +156,16 @@ def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
     seen_device_ids: set[str] = set()
 
     for link in soup.find_all("a", href=True):
-        href: str = link["href"]
+        href: str = str(link["href"]).strip()
+        # Reject absolute/cross-origin URLs, queries, and fragments as identifiers.
+        if (
+            "://" in href
+            or href.startswith("//")
+            or "?" in href
+            or "#" in href
+            or ".." in href
+        ):
+            continue
         m = DEVICE_URL_RE.match(href)
         if m:
             device_id = m.group(1)

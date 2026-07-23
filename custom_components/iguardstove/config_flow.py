@@ -22,6 +22,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
     USER_AGENT,
 )
+from .exceptions import DashboardParseError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,10 +34,18 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+async def validate_input(
+    hass: HomeAssistant,
+    data: dict[str, Any],
+    *,
+    require_devices: bool = True,
+) -> dict[str, Any]:
     """Validate that the provided credentials work and discover devices.
 
     Returns a dict with 'title' (for the config entry) and 'device_ids'.
+    When ``require_devices`` is True (initial setup), an authenticated account
+    with zero stoves is treated as CannotConnect. Reauth/reconfigure may pass
+    ``require_devices=False`` so empty accounts remain valid.
     """
     username = data[CONF_USERNAME].strip()
     session = async_create_clientsession(
@@ -48,7 +57,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         await client.async_login()
         devices = await client.async_get_devices()
 
-        if not devices:
+        if require_devices and not devices:
             raise CannotConnect("No iGuardStove devices found on this account")
 
         return {
@@ -121,7 +130,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_PASSWORD: user_input[CONF_PASSWORD],
             }
             try:
-                info = await validate_input(self.hass, data)
+                info = await validate_input(self.hass, data, require_devices=False)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -162,7 +171,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_PASSWORD: user_input[CONF_PASSWORD],
             }
             try:
-                info = await validate_input(self.hass, data)
+                info = await validate_input(self.hass, data, require_devices=False)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -206,6 +215,9 @@ class IGuardStoveOptionsFlowHandler(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        errors: dict[str, str] = {}
+        current_options = self.config_entry.options
+
         if user_input is not None:
             rediscover = bool(user_input.get(CONF_REDISCOVER_DEVICES, False))
             durable = {
@@ -222,12 +234,24 @@ class IGuardStoveOptionsFlowHandler(OptionsFlowWithReload):
 
             if rediscover:
                 runtime = getattr(self.config_entry, "runtime_data", None)
-                if runtime is not None and runtime.coordinator is not None:
-                    await runtime.coordinator.async_rediscover_now()
+                if runtime is None or runtime.coordinator is None:
+                    errors["base"] = "cannot_connect"
+                else:
+                    try:
+                        await runtime.coordinator.async_rediscover_now()
+                    except InvalidAuth:
+                        errors["base"] = "invalid_auth"
+                    except (CannotConnect, DashboardParseError):
+                        errors["base"] = "cannot_connect"
+                    except Exception:  # pylint: disable=broad-except
+                        _LOGGER.exception(
+                            "Unexpected exception during options rediscovery"
+                        )
+                        errors["base"] = "unknown"
 
-            return self.async_create_entry(title="", data=durable)
+            if not errors:
+                return self.async_create_entry(title="", data=durable)
 
-        current_options = self.config_entry.options
         schema = vol.Schema(
             {
                 vol.Optional(
@@ -254,4 +278,4 @@ class IGuardStoveOptionsFlowHandler(OptionsFlowWithReload):
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

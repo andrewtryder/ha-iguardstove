@@ -124,7 +124,7 @@ async def async_get_config_entry_diagnostics(
 
         for did, err in coordinator.data.errors.items():
             anon_id = _anonymize_id(did)
-            errors_data[anon_id] = _sanitize_string(str(err))
+            errors_data[anon_id] = _sanitize_nested(str(err), sensitive_tokens)
 
     diagnostics_data: dict[str, Any] = {
         "config_entry": config_entry_data,

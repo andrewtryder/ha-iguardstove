@@ -481,6 +481,111 @@ async def test_validate_input_no_devices(hass: HomeAssistant) -> None:
         )
 
 
+async def test_validate_input_no_devices_allowed_when_not_required(
+    hass: HomeAssistant,
+) -> None:
+    """Reauth/reconfigure may validate credentials without requiring devices."""
+    from custom_components.iguardstove.config_flow import validate_input
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[],
+        ),
+    ):
+        result = await validate_input(
+            hass,
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"},
+            require_devices=False,
+        )
+
+    assert result["title"] == "iGuardStove (user@example.com)"
+    assert result["device_ids"] == []
+    assert result["devices"] == []
+
+
+async def test_flow_reauth_zero_devices_success(hass: HomeAssistant) -> None:
+    """Successful reauth with zero devices persists an empty device list."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": entry.entry_id,
+        },
+        data={"username": "user@example.com", "password": "old_password"},
+    )
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": [],
+            "devices": [],
+        },
+    ) as mock_validate:
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_PASSWORD: "new_password"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.ABORT
+    assert result2["reason"] == "reauth_successful"
+    assert entry.data[CONF_PASSWORD] == "new_password"
+    assert entry.data["devices"] == []
+    assert mock_validate.await_args.kwargs.get("require_devices") is False
+
+
+async def test_flow_reconfigure_zero_devices_success(hass: HomeAssistant) -> None:
+    """Successful reconfigure with zero devices persists an empty device list."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": [],
+            "devices": [],
+        },
+    ) as mock_validate:
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_PASSWORD: "new_password"},
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.ABORT
+    assert result2["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_PASSWORD] == "new_password"
+    assert entry.data["devices"] == []
+    assert mock_validate.await_args.kwargs.get("require_devices") is False
+
+
 async def test_flow_reauth_unknown_exception(hass: HomeAssistant) -> None:
     """Test reauth flow shows unknown error on unexpected exception."""
     entry = MockConfigEntry(
@@ -546,7 +651,7 @@ async def test_options_flow(hass: HomeAssistant) -> None:
             CONF_ALLOW_REMOTE_UNLOCK: True,
             CONF_SCAN_INTERVAL: 120,
             CONF_ENABLE_ACTIVITY_EVENTS: False,
-            CONF_REDISCOVER_DEVICES: True,
+            CONF_REDISCOVER_DEVICES: False,
         },
     )
     assert result2["type"] is FlowResultType.CREATE_ENTRY
@@ -771,3 +876,116 @@ async def test_options_flow_rediscover_triggers_coordinator(
     assert result2["type"] is FlowResultType.CREATE_ENTRY
     coordinator.async_rediscover_now.assert_awaited_once()
     assert CONF_REDISCOVER_DEVICES not in entry.options
+
+
+async def test_options_flow_rediscover_invalid_auth(hass: HomeAssistant) -> None:
+    """Auth failures during rediscovery must not save options or reload."""
+    from custom_components.iguardstove.const import (
+        CONF_ALLOW_REMOTE_UNLOCK,
+        CONF_ENABLE_ACTIVITY_EVENTS,
+        CONF_REDISCOVER_DEVICES,
+        CONF_SCAN_INTERVAL,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+            "devices": MOCK_DEVICES,
+        },
+        options={CONF_SCAN_INTERVAL: 90},
+    )
+    entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.async_rediscover_now = AsyncMock(side_effect=InvalidAuth("bad"))
+    entry.runtime_data = MagicMock(coordinator=coordinator)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ALLOW_REMOTE_UNLOCK: True,
+            CONF_SCAN_INTERVAL: 120,
+            CONF_ENABLE_ACTIVITY_EVENTS: False,
+            CONF_REDISCOVER_DEVICES: True,
+        },
+    )
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "invalid_auth"}
+    assert entry.options == {CONF_SCAN_INTERVAL: 90}
+    assert CONF_REDISCOVER_DEVICES not in entry.options
+
+
+async def test_options_flow_rediscover_cannot_connect(hass: HomeAssistant) -> None:
+    """Connection failures during rediscovery must not save options or reload."""
+    from custom_components.iguardstove.const import (
+        CONF_ALLOW_REMOTE_UNLOCK,
+        CONF_ENABLE_ACTIVITY_EVENTS,
+        CONF_REDISCOVER_DEVICES,
+        CONF_SCAN_INTERVAL,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+            "devices": MOCK_DEVICES,
+        },
+        options={CONF_ALLOW_REMOTE_UNLOCK: False},
+    )
+    entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.async_rediscover_now = AsyncMock(side_effect=CannotConnect("offline"))
+    entry.runtime_data = MagicMock(coordinator=coordinator)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ALLOW_REMOTE_UNLOCK: True,
+            CONF_SCAN_INTERVAL: 120,
+            CONF_ENABLE_ACTIVITY_EVENTS: False,
+            CONF_REDISCOVER_DEVICES: True,
+        },
+    )
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "cannot_connect"}
+    assert entry.options == {CONF_ALLOW_REMOTE_UNLOCK: False}
+    assert CONF_REDISCOVER_DEVICES not in entry.options
+
+
+async def test_options_flow_rediscover_missing_runtime(hass: HomeAssistant) -> None:
+    """Missing runtime during rediscovery is reported as cannot_connect."""
+    from custom_components.iguardstove.const import (
+        CONF_ALLOW_REMOTE_UNLOCK,
+        CONF_ENABLE_ACTIVITY_EVENTS,
+        CONF_REDISCOVER_DEVICES,
+        CONF_SCAN_INTERVAL,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+            "devices": MOCK_DEVICES,
+        },
+        options={CONF_SCAN_INTERVAL: 60},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ALLOW_REMOTE_UNLOCK: True,
+            CONF_SCAN_INTERVAL: 120,
+            CONF_ENABLE_ACTIVITY_EVENTS: False,
+            CONF_REDISCOVER_DEVICES: True,
+        },
+    )
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "cannot_connect"}
+    assert entry.options == {CONF_SCAN_INTERVAL: 60}

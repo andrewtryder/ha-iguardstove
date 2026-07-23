@@ -13,6 +13,7 @@ from custom_components.iguardstove.client import (
     InvalidAuth,
     normalize_status,
 )
+from custom_components.iguardstove.const import USER_AGENT
 
 pytestmark = pytest.mark.enable_socket
 
@@ -182,6 +183,12 @@ DEVICE_PAGE_CELSIUS_HTML = """
 # ---------------------------------------------------------------------------
 # normalize_status tests (pure function — no HTTP needed)
 # ---------------------------------------------------------------------------
+
+
+def test_user_agent_has_no_release_version() -> None:
+    """User-Agent must stay versionless to avoid Release Please drift."""
+    assert USER_AGENT == "HomeAssistant-iGuardStove"
+    assert "/" not in USER_AGENT
 
 
 def test_normalize_status_known_patterns() -> None:

@@ -85,6 +85,44 @@ async def _setup_integration(
     return entry
 
 
+async def test_lock_entity_disabled_by_default(hass: HomeAssistant) -> None:
+    """Stove lock entities must remain disabled in the entity registry by default."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value=DEVICE_DATA_UNLOCKED,
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("lock", DOMAIN, "AABBCCDD1234_stove_lock")
+    assert entity_id is not None
+    entity = registry.async_get(entity_id)
+    assert entity is not None
+    assert entity.disabled is True
+    assert hass.states.get(entity_id) is None
+
+
 async def test_lock_entity_is_unlocked(hass: HomeAssistant) -> None:
     """Test lock entity reports unlocked state correctly."""
     await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
