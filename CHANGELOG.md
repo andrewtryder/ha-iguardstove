@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.5.1...v1.6.0) (2026-07-23)
+
+
+### Features
+
+* add reconfigure/options flows, enforce strict mypy, and translate icons ([#56](https://github.com/andrewtryder/ha-iguardstove/issues/56)) ([eb1cacc](https://github.com/andrewtryder/ha-iguardstove/commit/eb1cacc299d5573cec52800663e34754e8587044))
+
+
+### Bug Fixes
+
+* **devcontainer:** use Python 3.14 Bookworm and disable DinD Moby ([#60](https://github.com/andrewtryder/ha-iguardstove/issues/60)) ([8c2cb58](https://github.com/andrewtryder/ha-iguardstove/commit/8c2cb58897254c64401307b791041bc3a315ac4d))
+
 ## [1.5.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.5.0...v1.5.1) (2026-07-23)
 
 
