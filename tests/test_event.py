@@ -1,7 +1,7 @@
 """Tests for iGuardStove event entity platform and deduplication."""
 
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -878,3 +878,91 @@ async def test_deterministic_fingerprint_pruning(hass: HomeAssistant) -> None:
         oldest_dt = now - timedelta(minutes=599)
         oldest_fp = f"DEV1|{oldest_dt.isoformat()}|label|599"
         assert oldest_fp not in entity._seen_fingerprints
+
+
+@pytest.mark.asyncio
+async def test_event_store_manager_filters_non_string_records(
+    hass: HomeAssistant,
+) -> None:
+    """Test that EventStoreManager filters out non-string records on load."""
+    from custom_components.iguardstove.event import EventStoreManager
+
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(
+        return_value={
+            "version": 1,
+            "seen_events": {
+                "DEV1": ["valid_fp_1", 123, None, {"bad": "data"}],
+                12345: ["ignored_dev_key"],
+            },
+        }
+    )
+
+    manager = EventStoreManager(mock_store)
+    await manager.async_load()
+
+    assert manager.get_seen("DEV1") == {"valid_fp_1"}
+
+
+@pytest.mark.asyncio
+async def test_prune_fingerprints_handles_naive_timestamps_and_non_strings(
+    hass: HomeAssistant,
+) -> None:
+    """Test that _prune_fingerprints safely handles naive timestamp strings and non-string elements."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "secret",
+            "devices": [{"device_id": "DEV1", "device_name": "DEV1"}],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[{"device_id": "DEV1", "device_name": "DEV1"}],
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value={
+                "device_id": "DEV1",
+                "device_name": "DEV1",
+                "status": "Stove Off",
+                "today_events": (),
+            },
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity = hass.data["entity_components"]["event"].get_entity(
+            "event.dev1_activity"
+        )
+        assert entity is not None
+
+        # Populate with naive timestamp string, unparseable string, and non-string values
+        recent_naive_fp = "DEV1|2026-07-22T12:00:00|recent naive label|0"
+        old_naive_fp = "DEV1|2020-01-01T00:00:00|old naive label|0"
+        bad_format_fp = "invalid_fingerprint_without_pipe"
+        non_string_val = 99999
+
+        entity._seen_fingerprints = {
+            recent_naive_fp,
+            old_naive_fp,
+            bad_format_fp,
+            non_string_val,  # type: ignore[arg-type]
+        }
+
+        entity._prune_fingerprints()
+
+        # Non-string values and old naive timestamps pruned; recent naive timestamp & unparseable format retained safely
+        assert recent_naive_fp in entity._seen_fingerprints
+        assert bad_format_fp in entity._seen_fingerprints
+        assert old_naive_fp not in entity._seen_fingerprints
+        assert non_string_val not in entity._seen_fingerprints

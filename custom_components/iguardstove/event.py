@@ -56,17 +56,23 @@ class EventStoreManager:
                 raw_seen = stored_data.get("seen_events", {})
                 if isinstance(raw_seen, dict):
                     self._seen_events = {
-                        dev_id: set(fps) if isinstance(fps, list) else set()
+                        dev_id: {fp for fp in fps if isinstance(fp, str)}
+                        if isinstance(fps, list)
+                        else set()
                         for dev_id, fps in raw_seen.items()
+                        if isinstance(dev_id, str)
                     }
 
     def get_seen(self, device_id: str) -> set[str]:
         """Get copy of seen fingerprints for a device."""
-        return set(self._seen_events.get(device_id, set()))
+        raw_set = self._seen_events.get(device_id, set())
+        return {fp for fp in raw_set if isinstance(fp, str)}
 
     def update_seen(self, device_id: str, fingerprints: set[str]) -> None:
         """Update seen fingerprints for a device and schedule delayed save."""
-        self._seen_events[device_id] = set(fingerprints)
+        self._seen_events[device_id] = {
+            fp for fp in fingerprints if isinstance(fp, str)
+        }
         self._store.async_delay_save(self._data_to_save, delay=2.0)
 
     @callback
@@ -146,7 +152,10 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
         self._seen_fingerprints: set[str] = store_manager.get_seen(device_id)
         self._initial_seeded: bool = False
 
-        # Seed initial events from current snapshot without firing triggers
+        # NOTE (Intentional Startup Policy):
+        # We seed all events from the initial coordinator snapshot directly into seen_fingerprints
+        # without emitting HA event triggers. This intentionally suppresses events that occurred
+        # while Home Assistant was offline to prevent firing stale automation triggers upon startup.
         if self._device_data:
             initial_events = self._device_data.get("today_events", ())
             for event in initial_events:
@@ -218,17 +227,27 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
         retained: set[str] = set()
 
         def _extract_fp_datetime(fp: str) -> datetime:
+            if not isinstance(fp, str):
+                return datetime.min.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
             parts = fp.split("|")
             if len(parts) >= 2:
                 try:
-                    return datetime.fromisoformat(parts[1])
+                    dt = datetime.fromisoformat(parts[1])
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+                    return dt
                 except ValueError:
                     pass
-            return datetime.min
+            return datetime.min.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
 
         for fp in self._seen_fingerprints:
+            if not isinstance(fp, str):
+                continue
             dt = _extract_fp_datetime(fp)
-            if dt == datetime.min or dt >= cutoff:
+            if (
+                dt == datetime.min.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+                or dt >= cutoff
+            ):
                 retained.add(fp)
 
         if len(retained) > 500:
