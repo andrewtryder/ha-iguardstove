@@ -105,31 +105,6 @@ async def async_unload_entry(
     return unload_ok
 
 
-def _prune_device_from_config_entry(
-    hass: HomeAssistant,
-    config_entry: IGuardStoveConfigEntry,
-    device_id: str,
-) -> None:
-    """Remove a device from persisted config-entry data without runtime state."""
-    remaining = [
-        {
-            "device_id": str(d["device_id"]),
-            "device_name": str(d.get("device_name", d["device_id"])),
-        }
-        for d in config_entry.data.get("devices", [])
-        if isinstance(d, dict)
-        and isinstance(d.get("device_id"), str)
-        and d.get("device_id") != device_id
-    ]
-    current = config_entry.data.get("devices", [])
-    if current == remaining:
-        return
-    hass.config_entries.async_update_entry(
-        config_entry,
-        data={**dict(config_entry.data), "devices": remaining},
-    )
-
-
 async def async_remove_config_entry_device(
     hass: HomeAssistant,
     config_entry: IGuardStoveConfigEntry,
@@ -152,10 +127,10 @@ async def async_remove_config_entry_device(
     if runtime is not None and runtime.coordinator is not None:
         return bool(runtime.coordinator.async_prepare_device_removal(device_id))
 
-    # Entry is unloaded: active/inactive state is unknown. Still prune persisted
-    # device data so a removed stove cannot reappear on the next setup.
-    _prune_device_from_config_entry(hass, config_entry, device_id)
-    return True
+    # Entry is unloaded: active/inactive status cannot be established, so refuse
+    # removal rather than pruning and risking the stove silently reappearing on
+    # the next setup/discovery pass while it remains registered in the portal.
+    return False
 
 
 async def async_migrate_entry(

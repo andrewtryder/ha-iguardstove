@@ -146,6 +146,52 @@ async def test_diagnostics_error_strings_fully_redacted(hass: HomeAssistant) -> 
     assert BASE_URL not in diag_str
 
 
+async def test_diagnostics_short_password_always_redacted(hass: HomeAssistant) -> None:
+    """Passwords shorter than three characters must still be scrubbed from errors."""
+    from custom_components.iguardstove.models import CoordinatorData
+
+    short_password = "ab"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="iGuardStove (user@example.com)",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: short_password,
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value=MOCK_DEVICE_DATA,
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    entry.runtime_data.coordinator.data = CoordinatorData(
+        devices={"AABBCCDD1234": dict(MOCK_DEVICE_DATA)},
+        errors={
+            "AABBCCDD1234": f"Auth failed password={short_password} for Guest House Stove",
+        },
+    )
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    diag_str = json.dumps(diag)
+    assert short_password not in diag_str
+    assert "Guest House Stove" not in diag_str
+
+
 def test_sanitize_nested_helper() -> None:
     """Test _sanitize_nested helper with lists, dicts, tuples, sets, and non-string primitives."""
     from custom_components.iguardstove.diagnostics import _sanitize_nested
@@ -159,9 +205,12 @@ def test_sanitize_nested_helper() -> None:
         },
         "nested_tuple": ("secret_user", "safe_val"),
         "other": "hello secret_user world",
+        "with_short_password": "leak ab here",
     }
     sanitized = _sanitize_nested(
-        raw_data, ("secret_user", "https://manage.iguardfire.com/devices/DEV123/")
+        raw_data,
+        ("secret_user", "https://manage.iguardfire.com/devices/DEV123/"),
+        password_tokens=("ab",),
     )
     assert sanitized["username"] == "**REDACTED**"
     assert sanitized["nested_list"][0].startswith("[REDACTED_")
@@ -172,3 +221,4 @@ def test_sanitize_nested_helper() -> None:
     assert sanitized["nested_dict"]["url"].startswith("[REDACTED_")
     assert sanitized["nested_tuple"][0].startswith("[REDACTED_")
     assert sanitized["nested_tuple"][1] == "safe_val"
+    assert sanitized["with_short_password"] == "leak **REDACTED** here"

@@ -368,11 +368,15 @@ async def test_async_get_devices_success(aresponses) -> None:
 @pytest.mark.asyncio
 async def test_async_get_devices_empty_dashboard(aresponses) -> None:
     """Test that empty dashboard returns empty list."""
+    empty_html = (
+        '<html><body><div class="dashboard">No stoves registered.</div>'
+        '<a href="/account/logout/">Logout</a></body></html>'
+    )
     aresponses.add(
         PORTAL_HOST,
         "/",
         "GET",
-        aresponses.Response(text="<html><body>No stoves</body></html>", status=200),
+        aresponses.Response(text=empty_html, status=200),
     )
 
     async with aiohttp.ClientSession() as session:
