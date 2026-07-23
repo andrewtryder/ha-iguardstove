@@ -32,9 +32,9 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 | **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
 | **Fires Prevented** | `sensor` (diagnostic) | Total cumulative shutoff events recorded by the stove unit |
 | **Stove Lock** | `lock` (disabled by default) | Lock/unlock the stove from HA (requires explicit UI opt-in) |
-| **Activity** | `event` | Real-time portal activity events (e.g. Activity Seen, Night Lock ON/OFF, Stove Turned ON/OFF) |
+| **Activity** | `event` | Portal activity events (e.g. Activity Seen, Night Lock ON/OFF, Stove Turned ON/OFF) detected during the 60-second polling cycle |
 
-All stoves registered to your account are discovered automatically at setup time and updated dynamically during the polling cycle.
+All stoves registered to your account are discovered automatically at setup time, with dynamic discovery running every 6 hours and state updates polled every 60 seconds.
 
 ---
 
@@ -69,7 +69,7 @@ The integration parses the "Today's Events" table directly from the existing dev
 
 - An active iGuardFire account.
 - At least one iGuardStove visible in the iGuardFire management portal.
-- A supported Home Assistant version.
+- Home Assistant 2026.3.0 or newer.
 - Internet access from Home Assistant to `manage.iguardfire.com`.
 
 > [!NOTE]
@@ -108,7 +108,7 @@ No YAML configuration is needed.
 
 - **Web Scraping Dependency**: The integration authenticates against `manage.iguardfire.com` using a Django CSRF token + session cookie flow and scrapes HTML detail pages using BeautifulSoup. Because there is no official REST API, breaking changes to the portal's DOM layout may require integration updates.
 - **Polling Interval**: Device pages are polled every **60 seconds**.
-- **Discovery Limitations**: New stoves added to an existing account are discovered automatically during the regular polling loop.
+- **Dynamic Discovery**: New stoves added to an existing account are discovered automatically during periodic background discovery passes (every **6 hours**).
 
 ### Entities per Device
 
@@ -118,6 +118,7 @@ sensor.guest_house_stove_last_check_in
 sensor.guest_house_stove_temperature
 sensor.guest_house_stove_fires_prevented
 lock.guest_house_stove_stove_lock (disabled by default)
+event.guest_house_stove_activity
 ```
 
 ---
@@ -133,6 +134,7 @@ If you were previously using the `multiscrape` blueprint, remove those entries f
 | _(not available)_ | `sensor.guest_house_stove_temperature` |
 | _(not available)_ | `sensor.guest_house_stove_fires_prevented` |
 | _(not available)_ | `lock.guest_house_stove_stove_lock` |
+| _(not available)_ | `event.guest_house_stove_activity` |
 
 ---
 

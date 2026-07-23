@@ -57,3 +57,12 @@ Validate custom component structure and manifest formatting using the official H
 ```bash
 docker run --rm -v "$(pwd)/custom_components:/github/workspace/custom_components" ghcr.io/home-assistant/hassfest
 ```
+
+---
+
+## Pull Requests & Release Policy
+
+1. **Conventional Commits**: PR titles and commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/) (e.g., `feat(event): ...`, `fix: ...`, `chore: ...`).
+2. **Version Management**: **Never** manually edit version numbers or bump versions in `manifest.json`, `.release-please-manifest.json`, `CHANGELOG.md`, or Git tags in feature PRs.
+3. **Automated Releases**: Version updates, release PRs, tags, and changelog management are handled exclusively by **Release Please**.
+

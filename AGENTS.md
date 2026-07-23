@@ -58,4 +58,5 @@ docker run --rm -v "$(pwd)/custom_components:/github/workspace/custom_components
 *   **Exception Handling:** Handle specific exceptions (e.g., connection errors, auth errors) gracefully and bubble them up to the Coordinator using standard `UpdateFailed` exceptions.
 *   **State Updates:** Rely on the `DataUpdateCoordinator` for state. Entities should update their state based on `self.coordinator.data` in their respective `_handle_coordinator_update` methods.
 *   **Translations:** Use `strings.json` and the `translations/` directory for localized strings instead of hardcoding strings in the Python files (where applicable).
+*   **Release & Version Policy:** Only Release Please changes `manifest.json`, `.release-please-manifest.json`, tags, and `CHANGELOG.md` versions. Feature PRs and edits must use Conventional Commit titles but **never** manually bump version numbers.
 *   **Strict Adherence:** Prioritize these instructions unless the user explicitly requests otherwise.
