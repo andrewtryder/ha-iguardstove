@@ -15,9 +15,18 @@ from custom_components.iguardstove.const import DOMAIN
 from custom_components.iguardstove.coordinator import IGuardStoveDataUpdateCoordinator
 from custom_components.iguardstove.models import CoordinatorData
 from custom_components.iguardstove.sensor import SENSOR_DESCRIPTIONS, IGuardStoveSensor
+from custom_components.iguardstove.types import DeviceData
 
-DEVICE_DATA_1 = {"device_id": "DEV1", "status": "Stove Off"}
-DEVICE_DATA_2 = {"device_id": "DEV2", "status": "Stove On"}
+DEVICE_DATA_1: DeviceData = {
+    "device_id": "DEV1",
+    "device_name": "Stove 1",
+    "status": "Stove Off",
+}
+DEVICE_DATA_2: DeviceData = {
+    "device_id": "DEV2",
+    "device_name": "Stove 2",
+    "status": "Stove On",
+}
 
 
 @pytest.mark.asyncio
@@ -75,7 +84,7 @@ async def test_coordinator_all_devices_fail(hass: HomeAssistant) -> None:
     client.async_get_device_data = AsyncMock(side_effect=CannotConnect("Offline"))
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
-    coordinator.data = None
+    coordinator.data = None  # type: ignore[assignment]
 
     with pytest.raises(
         UpdateFailed, match="Failed to fetch data for all iGuardStove devices"
@@ -242,8 +251,16 @@ async def test_coordinator_stale_device_reconciliation(hass: HomeAssistant) -> N
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
     coordinator.data = CoordinatorData(
         devices={
-            "DEV1": {"device_id": "DEV1", "status": "Stove Off"},
-            "DEV2": {"device_id": "DEV2", "status": "Stove Off"},
+            "DEV1": {
+                "device_id": "DEV1",
+                "device_name": "Stove 1",
+                "status": "Stove Off",
+            },
+            "DEV2": {
+                "device_id": "DEV2",
+                "device_name": "Stove 2",
+                "status": "Stove Off",
+            },
         },
         errors={},
     )

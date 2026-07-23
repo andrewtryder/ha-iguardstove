@@ -43,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
     except CannotConnect as err:
         raise ConfigEntryNotReady(f"Failed to connect to iGuardFire: {err}") from err
 
-    stored_devices: list[dict] = entry.data.get("devices", [])
+    stored_devices: list[dict[str, Any]] = entry.data.get("devices", [])
     if stored_devices:
         device_ids = [d["device_id"] for d in stored_devices]
     else:
@@ -76,9 +76,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
         coordinator=coordinator,
     )
 
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
+
+
+async def async_update_options(
+    hass: HomeAssistant, entry: IGuardStoveConfigEntry
+) -> None:
+    """Handle options update."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(

@@ -64,7 +64,7 @@ async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
     assert entry_data[CONF_USERNAME] == "**REDACTED**"
     assert entry_data[CONF_PASSWORD] == "**REDACTED**"
 
-    expected_anon_id = hashlib.sha256("AABBCCDD1234".encode("utf-8")).hexdigest()[:8]
+    expected_anon_id = hashlib.sha256(b"AABBCCDD1234").hexdigest()[:8]
     assert diag["coordinator"]["device_ids"] == [expected_anon_id]
 
     dev_data = diag["coordinator"]["data"]["devices"][expected_anon_id]

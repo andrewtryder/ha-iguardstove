@@ -31,7 +31,7 @@ def test_blueprints_exist_and_are_valid() -> None:
     assert len(blueprint_files) >= 2, "Expected at least 2 blueprint YAML files"
 
     for blueprint_file in blueprint_files:
-        with open(blueprint_file, "r", encoding="utf-8") as f:
+        with open(blueprint_file, encoding="utf-8") as f:
             data = yaml.load(f, Loader=BlueprintCustomLoader)
 
         assert isinstance(data, dict), f"{blueprint_file.name} is not a valid dict"

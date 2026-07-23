@@ -11,10 +11,9 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
@@ -44,14 +43,12 @@ SENSOR_DESCRIPTIONS: tuple[IGuardStoveSensorEntityDescription, ...] = (
     IGuardStoveSensorEntityDescription(
         key="status",
         translation_key="status",
-        icon="mdi:stove",
         value_fn=lambda d: d.get("status"),
         attr_fn=lambda d: {"status_raw": d.get("status_raw")},
     ),
     IGuardStoveSensorEntityDescription(
         key="last_check_in",
         translation_key="last_check_in",
-        icon="mdi:clock-check-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.get("last_check_in"),
     ),
@@ -70,7 +67,6 @@ SENSOR_DESCRIPTIONS: tuple[IGuardStoveSensorEntityDescription, ...] = (
     IGuardStoveSensorEntityDescription(
         key="fires_prevented",
         translation_key="fires_prevented",
-        icon="mdi:fire-alert",
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.get("fires_prevented"),
@@ -100,7 +96,6 @@ async def async_setup_entry(
 
     @callback
     def _async_add_new_devices(new_device_ids: list[str]) -> None:
-
         new_entities: list[SensorEntity] = []
         for device_id in new_device_ids:
             if device_id not in known_devices:
@@ -160,6 +155,7 @@ class IGuardStoveSensor(IGuardStoveEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return extra state attributes if configured."""
         if self.entity_description.attr_fn:
-            data = self._device_data or {}
-            return self.entity_description.attr_fn(data)
+            data = self._device_data
+            if data is not None:
+                return self.entity_description.attr_fn(data)
         return None

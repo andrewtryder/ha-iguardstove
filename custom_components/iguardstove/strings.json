@@ -22,6 +22,18 @@
         "data_description": {
           "password": "The updated password for the configured iGuardFire account."
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure iGuardStove account",
+        "description": "Update account credentials or repair account configuration.",
+        "data": {
+          "username": "Username (Email)",
+          "password": "Password"
+        },
+        "data_description": {
+          "username": "The email address used to sign in to the iGuardFire management portal.",
+          "password": "The password for the iGuardFire account."
+        }
       }
     },
     "error": {
@@ -84,10 +96,16 @@
       "init": {
         "title": "iGuardStove Options",
         "data": {
-          "allow_remote_unlock": "Allow remote disengagement of stove lockout (Remote Unlock)"
+          "allow_remote_unlock": "Allow remote disengagement of stove lockout (Remote Unlock)",
+          "scan_interval": "Polling interval (seconds)",
+          "enable_activity_events": "Enable activity event collection",
+          "rediscover_devices": "Trigger device rediscovery on save"
         },
         "data_description": {
-          "allow_remote_unlock": "Enabling remote unlock allows disengaging physical stove lockouts from Home Assistant controls, automations, and scripts."
+          "allow_remote_unlock": "Enabling remote unlock allows disengaging physical stove lockouts from Home Assistant controls, automations, and scripts.",
+          "scan_interval": "How often (in seconds) to poll the iGuardStove portal for status updates (30-300 seconds).",
+          "enable_activity_events": "Collect and fire Home Assistant event entities for activity log entries.",
+          "rediscover_devices": "Immediately perform a device discovery pass to find newly added or reconfigured stoves."
         }
       }
     }
@@ -104,4 +122,3 @@
     }
   }
 }
-

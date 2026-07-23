@@ -2,6 +2,13 @@
 
 DOMAIN = "iguardstove"
 CONF_ALLOW_REMOTE_UNLOCK = "allow_remote_unlock"
+CONF_SCAN_INTERVAL = "scan_interval"
+CONF_ENABLE_ACTIVITY_EVENTS = "enable_activity_events"
+CONF_REDISCOVER_DEVICES = "rediscover_devices"
+
+DEFAULT_SCAN_INTERVAL = 60
+MIN_SCAN_INTERVAL = 30
+MAX_SCAN_INTERVAL = 300
 
 USER_AGENT = (
     "HomeAssistant-iGuardStove/1.5.0 "
