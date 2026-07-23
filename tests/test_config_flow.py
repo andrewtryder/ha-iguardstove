@@ -1,6 +1,6 @@
 """Tests for iGuardStove config flow."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -231,6 +231,36 @@ async def test_flow_duplicate_entry_aborted(hass: HomeAssistant) -> None:
 
     assert result2["type"] is FlowResultType.ABORT
     assert result2["reason"] == "already_configured"
+
+
+async def test_validate_input_session_detach(hass: HomeAssistant) -> None:
+    """Test that validate_input uses auto_cleanup=False and detaches session in finally block."""
+    from custom_components.iguardstove.config_flow import validate_input
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.config_flow.async_create_clientsession"
+        ) as mock_create_session,
+    ):
+        mock_session = MagicMock()
+        mock_create_session.return_value = mock_session
+
+        info = await validate_input(
+            hass, {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"}
+        )
+        assert info["device_ids"] == ["AABBCCDD1234"]
+
+        mock_create_session.assert_called_once()
+        assert mock_create_session.call_args.kwargs.get("auto_cleanup") is False
+        mock_session.detach.assert_called_once()
 
 
 async def test_flow_reauth_success(hass: HomeAssistant) -> None:

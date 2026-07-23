@@ -750,3 +750,115 @@ async def test_async_set_lock_state_unlock_post_returns_non_device_page(
             CannotConnect, match="Failed to confirm lock state transition"
         ):
             await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
+
+
+@pytest.mark.asyncio
+async def test_login_account_serialization_and_generation_tracking(aresponses) -> None:
+    """Test that concurrent login calls serialize and skip redundant HTTP logins."""
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "POST",
+        aresponses.Response(
+            status=302,
+            headers={"Location": "https://manage.iguardfire.com/"},
+        ),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=LOGIN_SUCCESS_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        assert client.auth_generation == 0
+
+        # First login succeeds and bumps generation to 1
+        res1 = await client.async_login()
+        assert res1 is True
+        assert client.auth_generation == 1
+
+        # Second login called with old generation (0 < 1) skips network request
+        res2 = await client.async_login(current_generation=0)
+        assert res2 is True
+        assert client.auth_generation == 1
+
+
+@pytest.mark.asyncio
+async def test_verification_get_reauthentication_recovery(aresponses) -> None:
+    """Test verification GET recovers from session expiration by re-logging in and retrying GET without re-POSTing."""
+    # 1. Initial GET before POST
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+    # 2. Lock POST returns 200 OK with non-device HTML (triggering verification GET)
+    non_device_html = "<html><body><h1>Welcome to Portal</h1></body></html>"
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=non_device_html, status=200),
+    )
+    # 3. Verification GET returns 302 redirect to login page (session expired!)
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(
+            status=302,
+            headers={"Location": "https://manage.iguardfire.com/account/login/?next=/"},
+        ),
+    )
+    # 4. Redirect follow GET /account/login/?next=/
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    # 5. Reauth async_login() GET CSRF
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    # 6. Reauth async_login() POST credentials
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "POST",
+        aresponses.Response(
+            status=302,
+            headers={"Location": "https://manage.iguardfire.com/"},
+        ),
+    )
+    # 7. Login redirect target /
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=LOGIN_SUCCESS_HTML, status=200),
+    )
+    # 8. Retry verification GET returns unlocked device page
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=False)

@@ -76,6 +76,13 @@ class IGuardStoveClient:
             "Accept-Language": "en-US,en;q=0.9",
         }
         self._device_locks: dict[str, asyncio.Lock] = {}
+        self._login_lock = asyncio.Lock()
+        self._auth_generation = 0
+
+    @property
+    def auth_generation(self) -> int:
+        """Return the current authentication generation count."""
+        return self._auth_generation
 
     async def async_close(self) -> None:
         """Close underlying HTTP session resources if open."""
@@ -155,41 +162,54 @@ class IGuardStoveClient:
         except aiohttp.ClientError as ex:
             raise CannotConnect(f"Network error during {method} to {url}") from ex
 
-    async def async_login(self) -> bool:
-        """Log in to the iGuardFire management portal.
+    async def async_login(self, current_generation: int | None = None) -> bool:
+        """Log in to the iGuardFire management portal with account-level lock serialization."""
+        async with self._login_lock:
+            if (
+                current_generation is not None
+                and current_generation < self._auth_generation
+            ):
+                _LOGGER.debug(
+                    "Session was already re-authenticated by another operation "
+                    "(generation %d -> %d), skipping duplicate login",
+                    current_generation,
+                    self._auth_generation,
+                )
+                return True
 
-        Django's CSRF protection requires:
-        1. GET the login page to receive the session cookie and csrfmiddlewaretoken.
-        2. POST credentials with the token included, and the Referer header set.
-        """
-        _LOGGER.debug("Fetching iGuardFire login page for CSRF token")
-        _, html, _ = await self._request("GET", LOGIN_URL, is_login_page=True)
+            _LOGGER.debug("Fetching iGuardFire login page for CSRF token")
+            _, html, _ = await self._request("GET", LOGIN_URL, is_login_page=True)
 
-        csrf_token = parse_login_csrf(html)
-        if not csrf_token:
-            raise CannotConnect("csrfmiddlewaretoken not found on login page")
+            csrf_token = parse_login_csrf(html)
+            if not csrf_token:
+                raise CannotConnect("csrfmiddlewaretoken not found on login page")
 
-        _LOGGER.debug("CSRF token obtained")
-        payload = {
-            "csrfmiddlewaretoken": csrf_token,
-            "login": self.username,
-            "password": self.password,
-        }
-        post_headers = {"Referer": LOGIN_URL}
+            _LOGGER.debug("CSRF token obtained")
+            payload = {
+                "csrfmiddlewaretoken": csrf_token,
+                "login": self.username,
+                "password": self.password,
+            }
+            post_headers = {"Referer": LOGIN_URL}
 
-        _LOGGER.debug("Submitting login credentials")
-        _, login_html, final_url = await self._request(
-            "POST",
-            LOGIN_URL,
-            data=payload,
-            headers=post_headers,
-            allow_redirects=True,
-            is_login_page=True,
-        )
+            _LOGGER.debug("Submitting login credentials")
+            _, login_html, final_url = await self._request(
+                "POST",
+                LOGIN_URL,
+                data=payload,
+                headers=post_headers,
+                allow_redirects=True,
+                is_login_page=True,
+            )
 
-        self._validate_login_response(login_html, final_url)
-        _LOGGER.info("iGuardStove login successful (redirected to %s)", final_url)
-        return True
+            self._validate_login_response(login_html, final_url)
+            self._auth_generation += 1
+            _LOGGER.info(
+                "iGuardStove login successful (generation %d, redirected to %s)",
+                self._auth_generation,
+                final_url,
+            )
+            return True
 
     def _validate_login_response(self, login_html: str, final_url: yarl.URL) -> None:
         """Validate login post response HTML and final redirect URL."""
@@ -209,12 +229,13 @@ class IGuardStoveClient:
     async def async_get_devices(self, retry_login: bool = True) -> list[DeviceSummary]:
         """Fetch all registered iGuardStove devices from the dashboard."""
         _LOGGER.debug("Fetching dashboard to discover devices")
+        gen = self._auth_generation
         try:
             _, html, _ = await self._request("GET", DASHBOARD_URL)
         except InvalidAuth:
             if retry_login:
-                _LOGGER.info("Session expired, re-logging in")
-                await self.async_login()
+                _LOGGER.info("Session expired during device discovery, re-logging in")
+                await self.async_login(current_generation=gen)
                 return await self.async_get_devices(retry_login=False)
             raise
 
@@ -232,13 +253,14 @@ class IGuardStoveClient:
         """Fetch and parse all sensor data for a single device."""
         url = f"{BASE_URL}/devices/{device_id}/"
         _LOGGER.debug("Fetching device page: %s", url)
+        gen = self._auth_generation
 
         try:
             _, html, _ = await self._request("GET", url)
         except InvalidAuth:
             if retry_login:
-                _LOGGER.info("Session expired, re-logging in")
-                await self.async_login()
+                _LOGGER.info("Session expired for device %s, re-logging in", device_id)
+                await self.async_login(current_generation=gen)
                 return await self.async_get_device_data(
                     device_id,
                     retry_login=False,
@@ -278,12 +300,13 @@ class IGuardStoveClient:
     ) -> None:
         """Internal helper for setting lock state while holding per-device lock."""
         url = f"{BASE_URL}/devices/{device_id}/"
+        gen = self._auth_generation
         try:
             _, html, _ = await self._request("GET", url)
         except InvalidAuth:
             if retry_login:
                 _LOGGER.info("Session expired before lock state change, re-logging in")
-                await self.async_login()
+                await self.async_login(current_generation=gen)
                 return await self._async_set_lock_state_internal(
                     device_id, target_locked, retry_login=False
                 )
@@ -305,6 +328,26 @@ class IGuardStoveClient:
         await self._execute_lock_state_change(
             url, device_id, target_locked, form_data, retry_login
         )
+
+    async def _async_fetch_verification_page(
+        self, url: str, device_id: str, retry_login: bool = True
+    ) -> str:
+        """Fetch device page for verification, handling session expiration reauthentication."""
+        gen = self._auth_generation
+        try:
+            _, html, _ = await self._request("GET", url)
+            return html
+        except InvalidAuth:
+            if retry_login:
+                _LOGGER.info(
+                    "Session expired during lock verification GET for %s, re-logging in",
+                    device_id,
+                )
+                await self.async_login(current_generation=gen)
+                return await self._async_fetch_verification_page(
+                    url, device_id, retry_login=False
+                )
+            raise
 
     async def _execute_lock_state_change(
         self,
@@ -330,6 +373,7 @@ class IGuardStoveClient:
             urllib.parse.urljoin(url, form_data.action) if form_data.action else url
         )
         post_headers = {"Referer": url}
+        gen = self._auth_generation
 
         _LOGGER.debug(
             "Posting lock state change for device %s (target_locked=%s) to %s",
@@ -345,7 +389,7 @@ class IGuardStoveClient:
         except InvalidAuth:
             if retry_login:
                 _LOGGER.info("Session expired during lock POST, re-logging in")
-                await self.async_login()
+                await self.async_login(current_generation=gen)
                 return await self._async_set_lock_state_internal(
                     device_id, target_locked, retry_login=False
                 )
@@ -360,7 +404,9 @@ class IGuardStoveClient:
             final_locked = None
 
         if final_locked != target_locked:
-            _, refetch_html, _ = await self._request("GET", url)
+            refetch_html = await self._async_fetch_verification_page(
+                url, device_id, retry_login=retry_login
+            )
             refetch_soup = BeautifulSoup(refetch_html, "html.parser")
             validate_device_page_invariants(refetch_soup, device_id)
             final_locked = parse_lock_state(refetch_soup)
