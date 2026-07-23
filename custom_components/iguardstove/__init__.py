@@ -107,3 +107,13 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Remove a config entry device from Home Assistant."""
     return True
+
+
+async def async_migrate_entry(
+    hass: HomeAssistant, config_entry: IGuardStoveConfigEntry
+) -> bool:
+    """Migrate old entry schemas if version changes."""
+    _LOGGER.debug(
+        "Migrating iGuardStove config entry from version %s", config_entry.version
+    )
+    return config_entry.version == 1

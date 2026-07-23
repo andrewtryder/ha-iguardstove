@@ -35,7 +35,7 @@ DEVICE_URL_RE = re.compile(r"^/devices/([A-F0-9]+)/$")
 CHECKIN_PREFIX_RE = re.compile(
     r"^iGuardStove\s+Last\s+Checked\s+In:\s*", flags=re.IGNORECASE
 )
-TEMP_RE = re.compile(r"([\d.]+)\s*(°[FC]?)?")
+TEMP_RE = re.compile(r"(-?[\d.,]+)\s*(°[FC]?)?")
 
 _SEEN_UNKNOWN_STATUSES: set[str] = set()
 _SEEN_UNKNOWN_EVENT_LABELS: set[str] = set()
@@ -504,7 +504,7 @@ def _parse_info_blocks(soup: BeautifulSoup, data: DeviceData) -> None:
 
         if "fires" in title_text or "shut off" in title_text:
             try:
-                data["fires_prevented"] = int(value_text)
+                data["fires_prevented"] = int(value_text.replace(",", ""))
             except ValueError:
                 _LOGGER.warning("Could not parse fires_prevented: %r", value_text)
 
@@ -512,7 +512,8 @@ def _parse_info_blocks(soup: BeautifulSoup, data: DeviceData) -> None:
             m = TEMP_RE.match(value_text)
             if m:
                 try:
-                    data["temperature"] = float(m.group(1))
+                    num_str = m.group(1).replace(",", ".")
+                    data["temperature"] = float(num_str)
                 except ValueError:
                     _LOGGER.warning("Could not parse temperature: %r", value_text)
                 unit_str = m.group(2) or "°F"

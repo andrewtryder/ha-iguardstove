@@ -132,3 +132,21 @@ async def test_consecutive_identical_events_trigger_automation_twice(
     )
     await hass.async_block_till_done()
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_blueprints_homeassistant_schema_import_validation(
+    hass: HomeAssistant,
+) -> None:
+    """Test importing and validating blueprint schemas with Home Assistant's blueprint model."""
+    from homeassistant.components.blueprint import BLUEPRINT_SCHEMA
+    from homeassistant.components.blueprint.models import Blueprint
+
+    blueprint_files = list(BLUEPRINTS_DIR.glob("*.yaml"))
+    for blueprint_file in blueprint_files:
+        content = await hass.async_add_executor_job(blueprint_file.read_text, "utf-8")
+        data = yaml.load(content, Loader=BlueprintCustomLoader)
+        bp_obj = Blueprint(data, expected_domain="automation", schema=BLUEPRINT_SCHEMA)
+        assert bp_obj.domain == "automation"
+        assert bp_obj.name is not None
+        assert bp_obj.inputs is not None

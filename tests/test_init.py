@@ -248,3 +248,98 @@ async def test_setup_entry_no_devices(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.SETUP_ERROR
+
+
+async def test_setup_reload_and_unload_session_cleanup(hass: HomeAssistant) -> None:
+    """Test setup -> reload -> unload cycle cleans up aiohttp sessions properly."""
+    entry = _make_entry()
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value=MOCK_DEVICE_DATA["AABBCCDD1234"],
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    first_client = entry.runtime_data.client
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value=MOCK_DEVICE_DATA["AABBCCDD1234"],
+        ),
+        patch.object(first_client, "close", new_callable=AsyncMock) as mock_close_1,
+    ):
+        # Reload
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    mock_close_1.assert_called_once()
+
+    second_client = entry.runtime_data.client
+    assert second_client is not first_client
+
+    with patch.object(second_client, "close", new_callable=AsyncMock) as mock_close_2:
+        # Unload
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.NOT_LOADED
+    mock_close_2.assert_called_once()
+
+
+async def test_async_migrate_entry(hass: HomeAssistant) -> None:
+    """Test config entry migration for version 1 and unsupported future version."""
+    from custom_components.iguardstove import async_migrate_entry
+
+    entry_v1 = MockConfigEntry(domain=DOMAIN, version=1, data={})
+    entry_v1.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry_v1) is True
+
+    entry_future = MockConfigEntry(domain=DOMAIN, version=99, data={})
+    entry_future.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry_future) is False
+
+
+async def test_remove_config_entry_device_scenarios(hass: HomeAssistant) -> None:
+    """Test removal of stale device entries including final device."""
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.iguardstove import async_remove_config_entry_device
+
+    entry = _make_entry()
+    entry.add_to_hass(hass)
+
+    dev_reg = dr.async_get(hass)
+    device_entry = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AABBCCDD1234")},
+        name="Guest House Stove",
+    )
+
+    # Removing known device entry returns True
+    assert await async_remove_config_entry_device(hass, entry, device_entry) is True
+
+    # Removing with None device_entry returns True
+    assert await async_remove_config_entry_device(hass, entry, None) is True
