@@ -93,9 +93,14 @@ class IGuardStoveClient:
         return self._auth_generation
 
     async def close(self) -> None:
-        """Close the underlying client session."""
+        """Release the Home Assistant-managed aiohttp session.
+
+        Sessions from ``async_create_clientsession`` share HA's connector and
+        must be ``detach()``-ed, not ``close()``-ed. Calling ``close()`` only
+        triggers HA's misuse warning and leaves the session unclosed.
+        """
         if self._session and not bool(getattr(self._session, "closed", False)):
-            await self._session.close()
+            self._session.detach()
 
     def _get_device_lock(self, device_id: str) -> asyncio.Lock:
         """Get or create per-device asyncio lock."""
