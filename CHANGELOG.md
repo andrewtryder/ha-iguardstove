@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.4.1...v1.5.0) (2026-07-23)
+
+
+### Features
+
+* **blueprints:** add Home Assistant automation blueprints and fix CI test workflow ([#51](https://github.com/andrewtryder/ha-iguardstove/issues/51)) ([aae7443](https://github.com/andrewtryder/ha-iguardstove/commit/aae7443ecd1f1229c05a41bad69d981f819eaac2))
+
 ## [1.4.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.4.0...v1.4.1) (2026-07-23)
 
 
