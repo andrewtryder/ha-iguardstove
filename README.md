@@ -67,7 +67,7 @@ The integration parses the "Today's Events" table directly from the existing dev
 
 ## Automation Blueprints
 
-This repository includes official Home Assistant blueprints to easily create automations for iGuardStove safety and operational activity events directly in the Home Assistant UI.
+This repository includes project-provided Home Assistant automation blueprints to easily create automations for iGuardStove safety and operational activity events directly in the Home Assistant UI.
 
 ### Included Blueprints
 
