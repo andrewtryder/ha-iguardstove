@@ -481,6 +481,65 @@ async def test_validate_input_no_devices(hass: HomeAssistant) -> None:
         )
 
 
+async def test_validate_input_dashboard_parse_error_is_cannot_connect(
+    hass: HomeAssistant,
+) -> None:
+    """DashboardParseError from discovery must surface as CannotConnect."""
+    import pytest
+
+    from custom_components.iguardstove.config_flow import validate_input
+    from custom_components.iguardstove.exceptions import DashboardParseError
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            side_effect=DashboardParseError("malformed dashboard"),
+        ),
+        pytest.raises(CannotConnect, match="dashboard could not be parsed"),
+    ):
+        await validate_input(
+            hass, {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"}
+        )
+
+
+async def test_flow_user_dashboard_parse_error_cannot_connect(
+    hass: HomeAssistant,
+) -> None:
+    """User flow maps DashboardParseError to cannot_connect, not unknown."""
+    from custom_components.iguardstove.exceptions import DashboardParseError
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] is FlowResultType.FORM
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            side_effect=DashboardParseError("malformed dashboard"),
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.close",
+            new_callable=AsyncMock,
+        ),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "secret"},
+        )
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "cannot_connect"}
+
+
 async def test_validate_input_no_devices_allowed_when_not_required(
     hass: HomeAssistant,
 ) -> None:

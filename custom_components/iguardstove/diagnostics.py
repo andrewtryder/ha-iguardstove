@@ -38,7 +38,11 @@ def _sanitize_string(val: str) -> str:
     return s
 
 
-def _sanitize_nested(obj: Any, sensitive_tokens: tuple[str, ...]) -> Any:
+def _sanitize_nested(
+    obj: Any,
+    identifier_tokens: tuple[str, ...],
+    password_tokens: tuple[str, ...] = (),
+) -> Any:
     """Recursively sanitize dictionary/list structure against sensitive tokens."""
     if isinstance(obj, dict):
         res = {}
@@ -46,14 +50,21 @@ def _sanitize_nested(obj: Any, sensitive_tokens: tuple[str, ...]) -> Any:
             if k in TO_REDACT:
                 res[k] = "**REDACTED**"
             else:
-                res[k] = _sanitize_nested(v, sensitive_tokens)
+                res[k] = _sanitize_nested(v, identifier_tokens, password_tokens)
         return res
     elif isinstance(obj, list | tuple):
-        sanitized = [_sanitize_nested(item, sensitive_tokens) for item in obj]
+        sanitized = [
+            _sanitize_nested(item, identifier_tokens, password_tokens) for item in obj
+        ]
         return tuple(sanitized) if isinstance(obj, tuple) else sanitized
     elif isinstance(obj, str):
         s = _sanitize_string(obj)
-        for tok in sensitive_tokens:
+        # Passwords are always removed regardless of length. Identifiers keep a
+        # three-character threshold to avoid excessive redaction of common words.
+        for tok in sorted(password_tokens, key=len, reverse=True):
+            if tok and tok in s:
+                s = s.replace(tok, "**REDACTED**")
+        for tok in sorted(identifier_tokens, key=len, reverse=True):
             if tok and len(tok) >= 3 and tok in s:
                 s = s.replace(tok, f"[REDACTED_{_anonymize_id(tok)}]")
         return s
@@ -84,9 +95,10 @@ async def async_get_config_entry_diagnostics(
             if isinstance(name, str) and name:
                 device_tokens.append(name)
 
-    sensitive_tokens = tuple(
-        t for t in (username, password, *device_tokens) if t and isinstance(t, str)
+    identifier_tokens = tuple(
+        t for t in (username, *device_tokens) if t and isinstance(t, str)
     )
+    password_tokens = tuple(t for t in (password,) if t and isinstance(t, str))
 
     # Sanitize config entry metadata explicitly
     stored_devices = entry.data.get("devices", [])
@@ -120,11 +132,15 @@ async def async_get_config_entry_diagnostics(
             dev_copy = dict(dev_dict)
             dev_copy["device_id"] = anon_id
             dev_copy["device_name"] = f"iGuardStove {anon_id}"
-            devices_data[anon_id] = _sanitize_nested(dev_copy, sensitive_tokens)
+            devices_data[anon_id] = _sanitize_nested(
+                dev_copy, identifier_tokens, password_tokens
+            )
 
         for did, err in coordinator.data.errors.items():
             anon_id = _anonymize_id(did)
-            errors_data[anon_id] = _sanitize_nested(str(err), sensitive_tokens)
+            errors_data[anon_id] = _sanitize_nested(
+                str(err), identifier_tokens, password_tokens
+            )
 
     diagnostics_data: dict[str, Any] = {
         "config_entry": config_entry_data,

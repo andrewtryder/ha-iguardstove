@@ -432,8 +432,8 @@ async def test_remove_config_entry_device_scenarios(hass: HomeAssistant) -> None
         name="Guest House Stove",
     )
 
-    # Removing known device entry returns True
-    assert await async_remove_config_entry_device(hass, entry, device_entry) is True
+    # Removing known device entry while unloaded refuses (active status unknown)
+    assert await async_remove_config_entry_device(hass, entry, device_entry) is False
 
     # Removing with None device_entry returns True
     assert await async_remove_config_entry_device(hass, entry, None) is True
@@ -521,10 +521,10 @@ async def test_remove_unavailable_device_cleans_persisted_state(
     store.clear_device.assert_called_once_with("AABBCCDD1234")
 
 
-async def test_remove_device_while_unloaded_prunes_and_does_not_reappear(
+async def test_remove_device_while_unloaded_is_refused(
     hass: HomeAssistant,
 ) -> None:
-    """Unloaded removals must prune persisted devices so reload cannot resurrect them."""
+    """Unloaded removals are refused; persisted devices stay until status is known."""
     from homeassistant.helpers import device_registry as dr
 
     from custom_components.iguardstove import async_remove_config_entry_device
@@ -554,14 +554,15 @@ async def test_remove_device_while_unloaded_prunes_and_does_not_reappear(
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.NOT_LOADED
 
+    devices_before = list(entry.data.get("devices", []))
     dev_reg = dr.async_get(hass)
     device_entry = dev_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, "AABBCCDD1234")},
         name="Guest House Stove",
     )
-    assert await async_remove_config_entry_device(hass, entry, device_entry) is True
-    assert entry.data.get("devices") == []
+    assert await async_remove_config_entry_device(hass, entry, device_entry) is False
+    assert entry.data.get("devices") == devices_before
 
     with (
         patch(
@@ -570,12 +571,16 @@ async def test_remove_device_while_unloaded_prunes_and_does_not_reappear(
         ),
         patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
-            return_value=[],
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value=MOCK_DEVICE_DATA["AABBCCDD1234"],
         ),
     ):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
-    assert entry.runtime_data.coordinator.device_ids == []
-    assert entry.data.get("devices") == []
+    assert "AABBCCDD1234" in entry.runtime_data.coordinator.device_ids
+    assert any(d["device_id"] == "AABBCCDD1234" for d in entry.data["devices"])

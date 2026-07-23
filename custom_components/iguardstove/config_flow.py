@@ -54,8 +54,11 @@ async def validate_input(
     client = IGuardStoveClient(session, username, data[CONF_PASSWORD])
 
     try:
-        await client.async_login()
-        devices = await client.async_get_devices()
+        try:
+            await client.async_login()
+            devices = await client.async_get_devices()
+        except DashboardParseError as err:
+            raise CannotConnect("The iGuardFire dashboard could not be parsed") from err
 
         if require_devices and not devices:
             raise CannotConnect("No iGuardStove devices found on this account")

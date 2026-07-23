@@ -182,23 +182,30 @@ def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
     if devices:
         return devices
 
-    # 2. Check for explicit valid empty dashboard page invariants
+    # 2. Return empty only with explicit authenticated empty-account evidence.
+    # Broad indicators (stove_line, "your stoves", etc.) alone are not enough:
+    # unsupported device URL formats must surface as parse failures, not as a
+    # validated empty account that can detach every device after confirmation.
+    has_logout = soup.find("a", href=re.compile(r"/account/logout/?", re.I)) is not None
     page_text = soup.get_text().casefold()
-    has_dashboard_structure = (
-        soup.find("a", href=re.compile(r"/account/logout/?", re.I)) is not None
-        or soup.find(class_=["stoves_list", "stove_line", "dashboard"]) is not None
-        or "no stoves" in page_text
-        or "no devices" in page_text
-        or "registered stoves" in page_text
-        or "your stoves" in page_text
-    )
+    has_empty_account_text = "no stoves" in page_text or "no devices" in page_text
 
-    if not has_dashboard_structure:
+    if has_logout and has_empty_account_text:
+        return []
+
+    has_stove_row = soup.find(class_="stove_line") is not None
+    has_unparsed_device_link = any(
+        re.match(r"^/devices?/", str(a.get("href", "")), re.I)
+        for a in soup.find_all("a", href=True)
+    )
+    if has_stove_row or has_unparsed_device_link:
         raise DashboardParseError(
-            "Account dashboard HTML missing expected page structure or device list"
+            "Dashboard contains device-like structure but no device could be parsed"
         )
 
-    return []
+    raise DashboardParseError(
+        "Account dashboard HTML missing expected page structure or device list"
+    )
 
 
 def parse_event_table(

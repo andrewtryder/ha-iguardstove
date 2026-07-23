@@ -202,6 +202,25 @@ def test_parse_dashboard_devices_rejects_unsafe_identifiers() -> None:
     assert parse_dashboard_devices(html) == []
 
 
+def test_parse_dashboard_devices_unsupported_path_raises_error() -> None:
+    """Non-empty-looking dashboards with unparseable device links are parse failures."""
+    html = """
+    <html><body>
+      <div class="stove_line">
+        <div class="stove_title">Guest House</div>
+        <a href="/devices/new-id-format/">View</a>
+      </div>
+      <div class="stove_line">
+        <div class="stove_title">Kitchen</div>
+        <a href="/device/AABBCCDD1234/">View</a>
+      </div>
+      <a href="/devices/AABBCCDD1234">missing-slash</a>
+    </body></html>
+    """
+    with pytest.raises(DashboardParseError, match="device-like structure"):
+        parse_dashboard_devices(html)
+
+
 def test_parse_dashboard_devices_empty_valid_account() -> None:
     """Test parsing valid empty dashboard page."""
     valid_empty_html = """<html><body><div class="dashboard">No stoves registered to your account.</div><a href="/account/logout/">Logout</a></body></html>"""
