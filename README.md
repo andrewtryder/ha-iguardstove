@@ -65,6 +65,26 @@ The integration parses the "Today's Events" table directly from the existing dev
 
 ---
 
+## Automation Blueprints
+
+This repository includes official Home Assistant blueprints to easily create automations for iGuardStove safety and operational activity events directly in the Home Assistant UI.
+
+### Included Blueprints
+
+1. **iGuardStove - Event Action Runner**: A flexible blueprint to trigger custom actions (mobile/persistent notifications, lights, sirens, TTS, or scripts) whenever selected iGuardStove event types occur.
+   [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fandrewtryder%2Fha-iguardstove%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Figuardstove%2Fselected_event_actions.yaml)
+
+2. **iGuardStove - Stove Safety Notification**: A guided blueprint configured for mobile app safety alerts with customizable titles and optional critical notification sound overrides (bypassing silent mode on supported devices).
+   [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fandrewtryder%2Fha-iguardstove%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Figuardstove%2Fsafety_notification.yaml)
+
+### Blueprint Safety Principles
+
+To preserve the safety model of iGuardStove:
+- **No Automatic Unlocking**: Blueprints in this repository are strictly notification and action runners. Blueprints will **never** automatically unlock the stove (e.g., via presence, schedules, or voice commands).
+- **Manual Lock Entity Opt-in**: The write-capable lock entity remains disabled by default in Home Assistant.
+
+---
+
 ## Prerequisites
 
 - An active iGuardFire account.
