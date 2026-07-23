@@ -15,7 +15,7 @@ Welcome! You are working on the `ha-iguardstove` repository, a Home Assistant cu
 *   **`client.py`:** Contains the API interaction logic (`IGuardStoveClient`). This is where all HTTP requests (aiohttp), BeautifulSoup parsing, and CSRF handling live.
 *   **`coordinator.py`:** Contains the `IGuardStoveDataUpdateCoordinator` which inherits from Home Assistant's `DataUpdateCoordinator`. This handles the 60-second polling loop and state updates.
 *   **`config_flow.py`:** Handles the UI-based setup process. This integration requires **no YAML configuration**.
-*   **`sensor.py`, `binary_sensor.py`, `lock.py`:** Home Assistant entity platform implementations.
+*   **`sensor.py`, `lock.py`, `event.py`:** Home Assistant entity platform implementations.
 
 ## 3. Tooling & Development Workflow
 

@@ -4,12 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.iguardstove.client import (
     CannotConnect,
     IGuardStoveClient,
+    InvalidAuth,
 )
 from custom_components.iguardstove.const import DOMAIN
 from custom_components.iguardstove.coordinator import IGuardStoveDataUpdateCoordinator
@@ -368,3 +370,19 @@ async def test_coordinator_stale_device_reconciliation_including_final_device(
     assert "DEV1" not in coordinator.device_ids
     assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV1")}) is None
     assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV2")}) is not None
+
+
+@pytest.mark.asyncio
+async def test_coordinator_auth_failure_raises_config_entry_auth_failed(
+    hass: HomeAssistant,
+) -> None:
+    """Test that InvalidAuth in coordinator raises ConfigEntryAuthFailed to halt polling and trigger reauth."""
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_device_data = AsyncMock(
+        side_effect=InvalidAuth("Invalid credentials")
+    )
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+
+    with pytest.raises(ConfigEntryAuthFailed, match="Authentication error for DEV1"):
+        await coordinator._async_update_data()
