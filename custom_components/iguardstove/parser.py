@@ -336,14 +336,20 @@ def validate_device_page_invariants(soup: BeautifulSoup, device_id: str) -> None
         )
 
 
+def _find_lock_form(soup: BeautifulSoup) -> Tag | None:
+    """Find the lock/unlock HTML form element on a device page."""
+    form = soup.find("form", {"id": ["unlock", "lock"]})
+    if form and isinstance(form, Tag):
+        return form
+    for f in soup.find_all("form"):
+        if isinstance(f, Tag) and f.find("button", {"name": ["lock", "unlock"]}):
+            return f
+    return None
+
+
 def _parse_lock_form_state(soup: BeautifulSoup) -> bool | None:
     """Parse lock state from lock/unlock form button if present."""
-    form = soup.find("form", {"id": ["unlock", "lock"]})
-    if not form:
-        for f in soup.find_all("form"):
-            if f.find("button", {"name": ["lock", "unlock"]}):
-                form = f
-                break
+    form = _find_lock_form(soup)
 
     button = form.find("button") if form else None
     if (
@@ -523,12 +529,7 @@ def _parse_info_blocks(soup: BeautifulSoup, data: DeviceData) -> None:
 def parse_lock_form(html: str, device_id: str) -> LockFormData:
     """Parse the lock form parameters from device page HTML."""
     soup = BeautifulSoup(html, "html.parser")
-    form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
-    if not form:
-        for f in soup.find_all("form"):
-            if f.find("button", {"name": ["lock", "unlock"]}):
-                form = f
-                break
+    form = _find_lock_form(soup)
 
     if not form:
         raise ValueError(f"Lock toggle form not found on device page for {device_id}")
