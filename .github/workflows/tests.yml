@@ -12,7 +12,11 @@ permissions: {}
 jobs:
   tests:
     runs-on: ubuntu-latest
-    name: Python 3.14
+    name: HA ${{ matrix.ha-version }} (Python 3.14)
+    strategy:
+      fail-fast: false
+      matrix:
+        ha-version: ["2026.3.0", "latest"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -24,7 +28,11 @@ jobs:
           allow-prereleases: true
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements_test.txt
+        run: |
+          pip install -r requirements.txt -r requirements_test.txt -c constraints_test.txt
+          if [ "${{ matrix.ha-version }}" != "latest" ]; then
+            pip install homeassistant==${{ matrix.ha-version }}
+          fi
 
       - name: Run tests with coverage
         run: >
@@ -39,4 +47,3 @@ jobs:
 
       - name: Ruff format
         run: ruff format --check .
-
