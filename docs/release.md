@@ -11,20 +11,21 @@ Merges to `main` must pass the consolidated [CI workflow](../.github/workflows/c
 
 Release Please runs only on pushes to `main`, and only after **CI success** for that exact SHA (`needs: [ci-success]`). Untested commits cannot create tags or GitHub releases through this automation.
 
-## Repository ruleset (apply once)
+## Repository ruleset
 
-Create or update a GitHub ruleset for `main` (Settings → Rules → Rulesets, or `gh api`):
+Active ruleset for `main` (Settings → Rules → Rulesets, or `gh api`):
 
 1. Target branch: `main`
 2. Require status checks to pass: `Tests (Python 3.14)`, `HACS validation`, `Hassfest`, `CI success`
-3. Require branch to be up to date before merging
-4. Require at least one approving review
-5. Do **not** allow bypass for repository administrators on this ruleset
+3. Require branch to be up to date before merging (`strict_required_status_checks_policy`)
+4. Do **not** allow bypass for repository administrators on this ruleset
 
-Example (adjust org/repo and existing ruleset id as needed):
+Approving reviews are intentionally **not** required while this is a solo-maintained repository (GitHub does not allow self-approval). Re-enable a `pull_request` rule with `required_approving_review_count: 1` when multiple maintainers can review.
+
+Example update payload (ruleset id `19630042`):
 
 ```bash
-gh api repos/{owner}/{repo}/rulesets --method POST --input - <<'EOF'
+gh api repos/{owner}/{repo}/rulesets/19630042 --method PUT --input - <<'EOF'
 {
   "name": "main protection",
   "target": "branch",
@@ -40,22 +41,13 @@ gh api repos/{owner}/{repo}/rulesets --method POST --input - <<'EOF'
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
         "required_status_checks": [
           {"context": "Tests (Python 3.14)"},
           {"context": "HACS validation"},
           {"context": "Hassfest"},
           {"context": "CI success"}
         ]
-      }
-    },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 1,
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": false
       }
     }
   ],
@@ -66,7 +58,7 @@ EOF
 
 ## Emergency break-glass
 
-If a critical hotfix must land while CI or reviews are unavailable:
+If a critical hotfix must land while CI is unavailable:
 
 1. A repository admin temporarily sets the ruleset enforcement to `evaluate` (or adds a short-lived bypass actor).
 2. Merge the hotfix with an explicit incident note in the PR.
