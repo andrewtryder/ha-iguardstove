@@ -84,6 +84,4 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: IGuardStoveConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        await entry.runtime_data.client.async_close()
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

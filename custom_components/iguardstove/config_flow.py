@@ -29,20 +29,25 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     Returns a dict with 'title' (for the config entry) and 'device_ids'.
     """
     username = data[CONF_USERNAME].strip()
-    session = async_create_clientsession(hass, headers={"User-Agent": USER_AGENT})
+    session = async_create_clientsession(
+        hass, auto_cleanup=False, headers={"User-Agent": USER_AGENT}
+    )
     client = IGuardStoveClient(session, username, data[CONF_PASSWORD])
 
-    await client.async_login()
-    devices = await client.async_get_devices()
+    try:
+        await client.async_login()
+        devices = await client.async_get_devices()
 
-    if not devices:
-        raise CannotConnect("No iGuardStove devices found on this account")
+        if not devices:
+            raise CannotConnect("No iGuardStove devices found on this account")
 
-    return {
-        "title": f"iGuardStove ({username})",
-        "device_ids": [d["device_id"] for d in devices],
-        "devices": devices,
-    }
+        return {
+            "title": f"iGuardStove ({username})",
+            "device_ids": [d["device_id"] for d in devices],
+            "devices": devices,
+        }
+    finally:
+        session.detach()
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

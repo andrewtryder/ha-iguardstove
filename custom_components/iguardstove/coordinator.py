@@ -63,13 +63,16 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
             update_interval=SCAN_INTERVAL,
         )
 
-    async def _async_discover_devices(self) -> None:
-        """Perform dynamic device discovery pass."""
+    async def _async_discover_devices(self) -> bool:
+        """Perform dynamic device discovery pass and reconcile registered devices."""
         try:
             discovered = await self.client.async_get_devices()
-            discovered_ids = [d["device_id"] for d in discovered]
+            discovered_ids = {d["device_id"] for d in discovered}
+
             new_device_ids = [
-                did for did in discovered_ids if did not in self.device_ids
+                d["device_id"]
+                for d in discovered
+                if d["device_id"] not in self.device_ids
             ]
             if new_device_ids:
                 _LOGGER.info(
@@ -84,12 +87,32 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                         f"{DOMAIN}_{self.config_entry.entry_id}_new_device",
                         new_device_ids,
                     )
+
+            stale_device_ids = [
+                did for did in self.device_ids if did not in discovered_ids
+            ]
+            if stale_device_ids:
+                _LOGGER.info(
+                    "Reconciling %d removed iGuardStove device(s): %s",
+                    len(stale_device_ids),
+                    stale_device_ids,
+                )
+                for did in stale_device_ids:
+                    self.device_ids.remove(did)
+                    self._unavailable_devices.discard(did)
+                    if self.data and did in self.data.devices:
+                        self.data.devices.pop(did, None)
+                    if self.data and did in self.data.errors:
+                        self.data.errors.pop(did, None)
+
+            return True
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed(
                 f"Authentication error during discovery pass: {err}"
             ) from err
         except Exception as err:
-            _LOGGER.debug("Could not perform dynamic device discovery pass: %s", err)
+            _LOGGER.warning("Could not perform dynamic device discovery pass: %s", err)
+            return False
 
     async def _async_update_data(self) -> CoordinatorData:
         """Fetch data for all registered devices with error isolation and discovery."""
@@ -98,8 +121,8 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
             self._last_discovery_time is None
             or now - self._last_discovery_time >= DISCOVERY_INTERVAL
         ):
-            await self._async_discover_devices()
-            self._last_discovery_time = now
+            if await self._async_discover_devices():
+                self._last_discovery_time = now
 
         event_date = now.date()
         tzinfo = now.tzinfo

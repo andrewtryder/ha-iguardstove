@@ -193,3 +193,57 @@ async def test_coordinator_surfaces_unexpected_exception(hass: HomeAssistant) ->
 
     with pytest.raises(ZeroDivisionError, match="Unexpected math error"):
         await coordinator._async_update_data()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_failed_discovery_retries_on_next_poll(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a failed discovery pass does not update _last_discovery_time and retries on the next poll."""
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(
+        side_effect=[CannotConnect("Dashboard unavailable"), [{"device_id": "DEV1"}]]
+    )
+    client.async_get_device_data = AsyncMock(
+        return_value={"device_id": "DEV1", "status": "Stove Off"}
+    )
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+
+    # First update: discovery fails, _last_discovery_time remains None
+    await coordinator._async_update_data()
+    assert client.async_get_devices.call_count == 1
+    assert coordinator._last_discovery_time is None
+
+    # Second update (60s poll): retries discovery and succeeds!
+    await coordinator._async_update_data()
+    assert client.async_get_devices.call_count == 2
+    assert coordinator._last_discovery_time is not None
+
+
+@pytest.mark.asyncio
+async def test_coordinator_stale_device_reconciliation(hass: HomeAssistant) -> None:
+    """Test that devices removed from portal dashboard are reconciled and removed from coordinator."""
+    client = MagicMock(spec=IGuardStoveClient)
+    # Dashboard now only returns DEV1 (DEV2 was removed from account)
+    client.async_get_devices = AsyncMock(return_value=[{"device_id": "DEV1"}])
+    client.async_get_device_data = AsyncMock(
+        side_effect=lambda did, *args, **kwargs: {
+            "device_id": did,
+            "status": "Stove Off",
+        }
+    )
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
+    coordinator.data = CoordinatorData(
+        devices={
+            "DEV1": {"device_id": "DEV1", "status": "Stove Off"},
+            "DEV2": {"device_id": "DEV2", "status": "Stove Off"},
+        },
+        errors={},
+    )
+
+    result = await coordinator._async_update_data()
+    assert "DEV2" not in coordinator.device_ids
+    assert "DEV2" not in result.devices
+    assert coordinator.device_ids == ["DEV1"]
