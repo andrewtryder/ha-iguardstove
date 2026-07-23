@@ -15,3 +15,7 @@ class InvalidAuth(IGuardStoveException):
 
 class EventParseError(IGuardStoveException):
     """Exception to indicate failure parsing portal activity events."""
+
+
+class DevicePageParseError(IGuardStoveException):
+    """Exception to indicate failure validating core device page invariants."""

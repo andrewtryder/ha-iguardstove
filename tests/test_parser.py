@@ -6,7 +6,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from bs4 import BeautifulSoup
 
-from custom_components.iguardstove.exceptions import EventParseError
+from custom_components.iguardstove.exceptions import (
+    DevicePageParseError,
+    EventParseError,
+    InvalidAuth,
+)
 from custom_components.iguardstove.models import StoveEventType
 from custom_components.iguardstove.parser import (
     has_password_input,
@@ -16,6 +20,7 @@ from custom_components.iguardstove.parser import (
     parse_device_page,
     parse_event_table,
     parse_lock_form,
+    parse_lock_state,
     parse_login_csrf,
     parse_login_errors,
     parse_today_events,
@@ -475,3 +480,114 @@ def test_parse_lock_form_validation_errors() -> None:
     """
     with pytest.raises(ValueError, match="Unexpected button name"):
         parse_lock_form(html_bad_button, "DEV1")
+
+
+def test_parse_device_page_generic_same_origin_200_html() -> None:
+    """Test parse_device_page raises DevicePageParseError on generic same-origin 200 HTML."""
+    html = "<html><body><h1>Welcome to Portal</h1><p>Dashboard main content</p></body></html>"
+    with pytest.raises(
+        DevicePageParseError, match="Missing core device page invariants"
+    ):
+        parse_device_page("DEV123", html)
+    assert parse_lock_state(html) is None
+
+
+def test_parse_device_page_maintenance_page() -> None:
+    """Test parse_device_page raises DevicePageParseError on maintenance page HTML."""
+    html = """
+    <!doctype html>
+    <html>
+    <body>
+      <div class="maintenance">
+        <h1>System Maintenance</h1>
+        <p>The iGuardFire portal is under scheduled maintenance. Please try again later.</p>
+      </div>
+    </body>
+    </html>
+    """
+    with pytest.raises(
+        DevicePageParseError, match="Missing core device page invariants"
+    ):
+        parse_device_page("DEV123", html)
+    assert parse_lock_state(html) is None
+
+
+def test_parse_device_page_missing_lock_form_and_icon() -> None:
+    """Test lock state returns None when form and icon are missing and status is unrecognized."""
+    html_unrecognized = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Main Kitchen Stove</span>
+      <span class="stove_status_text">Custom portal status</span>
+      <span class="stove_date">iGuardStove Last Checked In: 5 minutes ago</span>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_unrecognized) is None
+    data = parse_device_page("DEV123", html_unrecognized)
+    assert data["is_locked"] is None
+    assert data["status_raw"] == "Custom portal status"
+
+    html_recognized_unlocked = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Main Kitchen Stove</span>
+      <span class="stove_status_text">iGuardStove is off</span>
+      <span class="stove_date">iGuardStove Last Checked In: 5 minutes ago</span>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html_recognized_unlocked) is False
+    data2 = parse_device_page("DEV123", html_recognized_unlocked)
+    assert data2["is_locked"] is False
+
+
+def test_parse_device_page_changed_status_markup() -> None:
+    """Test lock state parsing when status markup structure is changed or unrecognized."""
+    html = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Main Kitchen Stove</span>
+      <div class="unknown_status_wrapper">Status: Active Operating Mode</div>
+      <span class="stove_date">iGuardStove Last Checked In: 1 minute ago</span>
+    </body>
+    </html>
+    """
+    assert parse_lock_state(html) is None
+    data = parse_device_page("DEV123", html)
+    assert data["is_locked"] is None
+
+
+def test_parse_device_page_auth_page_without_password_element() -> None:
+    """Test rejecting auth pages that do not contain exact password input element."""
+    username_only_form = """
+    <!doctype html>
+    <html>
+    <body>
+      <form action="/account/login/" method="post">
+        <label>Username or Email</label>
+        <input type="text" name="username" />
+        <button type="submit">Next</button>
+      </form>
+    </body>
+    </html>
+    """
+    with pytest.raises(InvalidAuth, match="Auth or login page returned"):
+        parse_device_page("DEV123", username_only_form)
+
+    session_expired_notice = """
+    <!doctype html>
+    <html>
+    <body>
+      <div class="session-expired">
+        <h2>Session Expired</h2>
+        <p>Please <a href="/account/login/">sign in</a> again to continue.</p>
+      </div>
+    </body>
+    </html>
+    """
+    with pytest.raises((InvalidAuth, DevicePageParseError)):
+        parse_device_page("DEV123", session_expired_notice)
