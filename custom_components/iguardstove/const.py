@@ -11,7 +11,7 @@ MIN_SCAN_INTERVAL = 30
 MAX_SCAN_INTERVAL = 300
 
 USER_AGENT = (
-    "HomeAssistant-iGuardStove/1.5.0 "
+    "HomeAssistant-iGuardStove/1.6.0 "
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"

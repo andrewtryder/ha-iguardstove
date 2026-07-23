@@ -34,5 +34,5 @@ This integration interacts with physical stove safety hardware (iGuardStove / iG
 - Credentials stored in Home Assistant configuration entries are protected by standard Home Assistant file permissions.
 
 ### 3. Portal & Web Scraping Dependencies
-- Data is retrieved via HTML web scraping of the manufacturer's cloud portal every 60 seconds.
+- Data is retrieved via HTML web scraping of the manufacturer's cloud portal on a configurable interval (30–300 seconds, default 60).
 - Changes to the HTML DOM structure of `manage.iguardfire.com` or unexpected portal outages can impair state updates or control actions.

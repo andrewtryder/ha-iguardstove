@@ -308,12 +308,13 @@ async def test_async_login_alert_danger(aresponses) -> None:
 @pytest.mark.asyncio
 async def test_async_login_server_error(aresponses) -> None:
     """Test login raises CannotConnect when the login page returns a 5xx."""
-    aresponses.add(
-        PORTAL_HOST,
-        LOGIN_PATH_RE,
-        "GET",
-        aresponses.Response(status=500),
-    )
+    for _ in range(3):
+        aresponses.add(
+            PORTAL_HOST,
+            LOGIN_PATH_RE,
+            "GET",
+            aresponses.Response(status=500),
+        )
 
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
@@ -1054,3 +1055,209 @@ async def test_client_cross_origin_redirect_prevention(aresponses) -> None:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         with pytest.raises((CannotConnect, InvalidAuth)):
             await client.async_login()
+
+
+@pytest.mark.asyncio
+async def test_lock_post_not_auto_retried_on_502(aresponses) -> None:
+    """Lock POST must not be blindly retried by the transport helper on 502."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(status=502, text="Bad Gateway"),
+    )
+    # Verification GET shows target already applied — no second POST.
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
+
+
+@pytest.mark.asyncio
+async def test_lock_post_ambiguous_then_controlled_retry(aresponses) -> None:
+    """Ambiguous lock POST verifies, refreshes form, then allows one controlled retry."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(status=503, text="Unavailable"),
+    )
+    # Verify still unlocked
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+    # Form refresh
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+    # Controlled retry POST
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
+
+
+@pytest.mark.asyncio
+async def test_login_post_ambiguous_restarts_csrf_flow(aresponses) -> None:
+    """Ambiguous login POST restarts full CSRF GET rather than replaying the POST."""
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "POST",
+        aresponses.Response(status=502, text="Bad Gateway"),
+    )
+    # Restarted CSRF flow
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "POST",
+        aresponses.Response(
+            status=302,
+            headers={"Location": "https://manage.iguardfire.com/"},
+        ),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=LOGIN_SUCCESS_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        assert await client.async_login() is True
+
+
+@pytest.mark.asyncio
+async def test_redirect_methods_and_cross_origin_blocked(aresponses) -> None:
+    """Same-origin 303 becomes GET; cross-origin Location is rejected before follow."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(
+            status=303,
+            headers={"Location": "/devices/AABBCCDD1234/"},
+        ),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        status, html, url = await client._request(
+            "GET", "https://manage.iguardfire.com/"
+        )
+        assert status == 200
+        assert "AABBCCDD1234" in html
+        assert "devices" in str(url)
+
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(
+            status=307,
+            headers={"Location": "https://evil.example/steal"},
+        ),
+    )
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(CannotConnect, match="origin mismatch"):
+            await client._request(
+                "GET", "https://manage.iguardfire.com/devices/AABBCCDD1234/"
+            )
+
+
+@pytest.mark.asyncio
+async def test_request_too_many_redirects(aresponses) -> None:
+    """Cap redirect hops and raise CannotConnect."""
+    for _ in range(6):
+        aresponses.add(
+            PORTAL_HOST,
+            "/",
+            "GET",
+            aresponses.Response(
+                status=302,
+                headers={"Location": "https://manage.iguardfire.com/"},
+            ),
+        )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(CannotConnect, match="Too many redirects"):
+            await client._request("GET", "https://manage.iguardfire.com/")
+
+
+@pytest.mark.asyncio
+async def test_relative_redirect_same_origin(aresponses) -> None:
+    """Relative Location headers are resolved and validated against the portal host."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(
+            status=301,
+            headers={"Location": "/"},
+        ),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=DASHBOARD_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        status, html, _ = await client._request(
+            "GET", "https://manage.iguardfire.com/devices/AABBCCDD1234/"
+        )
+        assert status == 200
+        assert "AABBCCDD1234" in html

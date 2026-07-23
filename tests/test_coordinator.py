@@ -291,6 +291,78 @@ async def test_coordinator_empty_discovery_retains_devices(hass: HomeAssistant) 
     success = await coordinator._async_discover_devices(now)
     assert success is True
     assert coordinator.device_ids == ["DEV1", "DEV2"]
+    assert coordinator._empty_discovery_count == 1
+
+
+@pytest.mark.asyncio
+async def test_coordinator_validated_empty_removes_final_device(
+    hass: HomeAssistant,
+) -> None:
+    """Test three consecutive validated empty discoveries remove the final device."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.util import dt as dt_util
+
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(return_value=[])
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"devices": [{"device_id": "DEV1", "device_name": "Stove 1"}]},
+    )
+    entry.add_to_hass(hass)
+    coordinator.config_entry = entry
+    entry.runtime_data = MagicMock(event_store=None)
+
+    dev_reg = dr.async_get(hass)
+    device_entry = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "DEV1")},
+        name="Stove 1",
+    )
+
+    now = dt_util.now()
+    await coordinator._async_discover_devices(now)
+    assert coordinator.device_ids == ["DEV1"]
+    await coordinator._async_discover_devices(now)
+    assert coordinator.device_ids == ["DEV1"]
+    await coordinator._async_discover_devices(now)
+    assert coordinator.device_ids == []
+    assert entry.data.get("devices") == []
+    assert device_entry.id not in {
+        d.id for d in dev_reg.devices.values() if entry.entry_id in d.config_entries
+    }
+
+
+@pytest.mark.asyncio
+async def test_coordinator_parse_error_resets_empty_counter(
+    hass: HomeAssistant,
+) -> None:
+    """Test DashboardParseError does not count toward empty-discovery removal."""
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.iguardstove.exceptions import DashboardParseError
+
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(
+        side_effect=[
+            [],
+            [],
+            DashboardParseError("malformed"),
+            [],
+        ]
+    )
+
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    now = dt_util.now()
+    await coordinator._async_discover_devices(now)
+    await coordinator._async_discover_devices(now)
+    assert coordinator._empty_discovery_count == 2
+    assert await coordinator._async_discover_devices(now) is False
+    assert coordinator._empty_discovery_count == 0
+    await coordinator._async_discover_devices(now)
+    assert coordinator.device_ids == ["DEV1"]
+    assert coordinator._empty_discovery_count == 1
 
 
 @pytest.mark.asyncio
@@ -365,10 +437,11 @@ async def test_coordinator_stale_device_reconciliation_including_final_device(
     await coordinator._async_discover_devices(now)
     assert "DEV1" in coordinator.device_ids
 
-    # Pass 2: DEV1 missing again, DEV1 device entry removed from registry
+    # Pass 2: DEV1 missing again; this config entry is detached (device may be deleted)
     await coordinator._async_discover_devices(now)
     assert "DEV1" not in coordinator.device_ids
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV1")}) is None
+    remaining_dev1 = dev_reg.async_get_device(identifiers={(DOMAIN, "DEV1")})
+    assert remaining_dev1 is None or entry.entry_id not in remaining_dev1.config_entries
     assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV2")}) is not None
 
 
@@ -386,3 +459,68 @@ async def test_coordinator_auth_failure_raises_config_entry_auth_failed(
 
     with pytest.raises(ConfigEntryAuthFailed, match="Authentication error for DEV1"):
         await coordinator._async_update_data()
+
+
+@pytest.mark.asyncio
+async def test_async_prepare_device_removal_refuses_active(hass: HomeAssistant) -> None:
+    """Refuse manual removal while the device is still actively reporting."""
+    client = MagicMock(spec=IGuardStoveClient)
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    coordinator.data = CoordinatorData(
+        devices={
+            "DEV1": {
+                "device_id": "DEV1",
+                "device_name": "Stove 1",
+                "status": "Stove Off",
+            }
+        },
+        errors={},
+    )
+    assert coordinator.async_prepare_device_removal("DEV1") is False
+    assert coordinator.device_ids == ["DEV1"]
+
+
+@pytest.mark.asyncio
+async def test_async_prepare_device_removal_cleans_unavailable(
+    hass: HomeAssistant,
+) -> None:
+    """Allow manual removal and prune local state for an unavailable device."""
+    from homeassistant.helpers import device_registry as dr
+
+    client = MagicMock(spec=IGuardStoveClient)
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "devices": [
+                {"device_id": "DEV1", "device_name": "Stove 1"},
+                {"device_id": "DEV2", "device_name": "Stove 2"},
+            ]
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator.config_entry = entry
+    coordinator._unavailable_devices.add("DEV1")
+    coordinator.data = CoordinatorData(
+        devices={
+            "DEV1": {"device_id": "DEV1", "device_name": "Stove 1"},
+            "DEV2": {"device_id": "DEV2", "device_name": "Stove 2"},
+        },
+        errors={"DEV1": "offline"},
+    )
+
+    store = MagicMock()
+    store.clear_device = MagicMock()
+    entry.runtime_data = MagicMock(event_store=store)
+
+    dev_reg = dr.async_get(hass)
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "DEV1")},
+        name="Stove 1",
+    )
+
+    assert coordinator.async_prepare_device_removal("DEV1") is True
+    assert "DEV1" not in coordinator.device_ids
+    assert store.clear_device.called
+    assert all(d["device_id"] != "DEV1" for d in entry.data["devices"])

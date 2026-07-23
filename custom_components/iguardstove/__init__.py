@@ -9,7 +9,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .client import CannotConnect, IGuardStoveClient, InvalidAuth
-from .const import USER_AGENT
+from .const import DOMAIN, USER_AGENT
 from .coordinator import (
     IGuardStoveConfigEntry,
     IGuardStoveData,
@@ -50,6 +50,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
         try:
             devices = await client.async_get_devices()
             device_ids = [d["device_id"] for d in devices]
+            if devices:
+                hass.config_entries.async_update_entry(
+                    entry,
+                    data={**dict(entry.data), "devices": devices},
+                )
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed(
                 f"Invalid credentials discovering devices: {err}"
@@ -60,11 +65,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
             ) from err
 
     if not device_ids:
-        _LOGGER.error(
-            "No iGuardStove devices found for account %s",
+        _LOGGER.warning(
+            "No iGuardStove devices found for account %s; keeping entry loaded",
             entry.data[CONF_USERNAME],
         )
-        return False
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, device_ids)
     coordinator.config_entry = entry
@@ -76,18 +80,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
         coordinator=coordinator,
     )
 
-    entry.async_on_unload(entry.add_update_listener(async_update_options))
-
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
-
-
-async def async_update_options(
-    hass: HomeAssistant, entry: IGuardStoveConfigEntry
-) -> None:
-    """Handle options update."""
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(
@@ -105,8 +100,24 @@ async def async_remove_config_entry_device(
     config_entry: IGuardStoveConfigEntry,
     device_entry: Any,
 ) -> bool:
-    """Remove a config entry device from Home Assistant."""
-    return True
+    """Prepare and approve manual removal of a device from this config entry."""
+    if device_entry is None:
+        return True
+
+    device_id: str | None = None
+    for domain, identifier in device_entry.identifiers:
+        if domain == DOMAIN:
+            device_id = identifier
+            break
+
+    if device_id is None:
+        return True
+
+    runtime = getattr(config_entry, "runtime_data", None)
+    if runtime is None or runtime.coordinator is None:
+        return True
+
+    return bool(runtime.coordinator.async_prepare_device_removal(device_id))
 
 
 async def async_migrate_entry(

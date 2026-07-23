@@ -5,7 +5,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
@@ -132,8 +132,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_update_reload_and_abort(
                     reauth_entry,
-                    data={
-                        **reauth_entry.data,
+                    data_updates={
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
                         "devices": info["devices"],
                     },
@@ -151,24 +150,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle user-initiated reconfiguration flow."""
+        """Handle user-initiated reconfiguration for the existing account only."""
         errors: dict[str, str] = {}
         reconfigure_entry = self._get_reconfigure_entry()
+        existing_username = reconfigure_entry.data[CONF_USERNAME]
+        normalized_existing = str(existing_username).strip().casefold()
 
         if user_input is not None:
-            raw_username = user_input[CONF_USERNAME].strip()
-            normalized_username = raw_username.casefold()
-
-            if normalized_username != reconfigure_entry.unique_id:
-                for entry in self._async_current_entries():
-                    if (
-                        entry.entry_id != reconfigure_entry.entry_id
-                        and entry.unique_id == normalized_username
-                    ):
-                        return self.async_abort(reason="already_configured")
-
+            data = {
+                CONF_USERNAME: existing_username,
+                CONF_PASSWORD: user_input[CONF_PASSWORD],
+            }
             try:
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, data)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -177,54 +171,61 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception during reconfigure flow")
                 errors["base"] = "unknown"
             else:
-                if normalized_username != reconfigure_entry.unique_id:
-                    await self.async_set_unique_id(normalized_username)
-
+                await self.async_set_unique_id(normalized_existing)
+                self._abort_if_unique_id_mismatch(reason="wrong_account")
                 return self.async_update_reload_and_abort(
                     reconfigure_entry,
-                    title=info["title"],
-                    data={
-                        **reconfigure_entry.data,
-                        CONF_USERNAME: raw_username,
+                    data_updates={
                         CONF_PASSWORD: user_input[CONF_PASSWORD],
                         "devices": info["devices"],
                     },
                 )
 
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_USERNAME,
-                    default=reconfigure_entry.data.get(CONF_USERNAME, ""),
-                ): str,
-                vol.Required(CONF_PASSWORD): str,
-            }
-        )
+        schema = vol.Schema({vol.Required(CONF_PASSWORD): str})
 
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=schema,
             errors=errors,
+            description_placeholders={"username": existing_username},
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
+    ) -> OptionsFlowWithReload:
         """Create options flow handler."""
         return IGuardStoveOptionsFlowHandler()
 
 
-class IGuardStoveOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle iGuardStove options."""
+class IGuardStoveOptionsFlowHandler(OptionsFlowWithReload):
+    """Handle iGuardStove options with automatic reload on save."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            rediscover = bool(user_input.get(CONF_REDISCOVER_DEVICES, False))
+            durable = {
+                CONF_ALLOW_REMOTE_UNLOCK: user_input.get(
+                    CONF_ALLOW_REMOTE_UNLOCK, False
+                ),
+                CONF_SCAN_INTERVAL: user_input.get(
+                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                ),
+                CONF_ENABLE_ACTIVITY_EVENTS: user_input.get(
+                    CONF_ENABLE_ACTIVITY_EVENTS, True
+                ),
+            }
+
+            if rediscover:
+                runtime = getattr(self.config_entry, "runtime_data", None)
+                if runtime is not None and runtime.coordinator is not None:
+                    await runtime.coordinator.async_rediscover_now()
+
+            return self.async_create_entry(title="", data=durable)
 
         current_options = self.config_entry.options
         schema = vol.Schema(

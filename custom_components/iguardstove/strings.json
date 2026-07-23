@@ -25,14 +25,12 @@
       },
       "reconfigure": {
         "title": "Reconfigure iGuardStove account",
-        "description": "Update account credentials or repair account configuration.",
+        "description": "Update the password for {username}. Account identity cannot be changed; remove and re-add the integration to switch accounts.",
         "data": {
-          "username": "Username (Email)",
           "password": "Password"
         },
         "data_description": {
-          "username": "The email address used to sign in to the iGuardFire management portal.",
-          "password": "The password for the iGuardFire account."
+          "password": "The password for the configured iGuardFire account."
         }
       }
     },
@@ -43,7 +41,9 @@
     },
     "abort": {
       "already_configured": "This iGuardStove account is already configured.",
-      "reauth_successful": "Reauthentication was successful."
+      "reauth_successful": "Reauthentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful.",
+      "wrong_account": "The account identity does not match this configuration entry."
     }
   },
   "entity": {
@@ -98,14 +98,14 @@
         "data": {
           "allow_remote_unlock": "Allow remote disengagement of stove lockout (Remote Unlock)",
           "scan_interval": "Polling interval (seconds)",
-          "enable_activity_events": "Enable activity event collection",
+          "enable_activity_events": "Emit activity events",
           "rediscover_devices": "Trigger device rediscovery on save"
         },
         "data_description": {
           "allow_remote_unlock": "Enabling remote unlock allows disengaging physical stove lockouts from Home Assistant controls, automations, and scripts.",
           "scan_interval": "How often (in seconds) to poll the iGuardStove portal for status updates (30-300 seconds).",
-          "enable_activity_events": "Collect and fire Home Assistant event entities for activity log entries.",
-          "rediscover_devices": "Immediately perform a device discovery pass to find newly added or reconfigured stoves."
+          "enable_activity_events": "When enabled, fire Home Assistant event entities for newly observed activity log entries.",
+          "rediscover_devices": "Immediately perform a one-shot device discovery pass to find newly added or reconfigured stoves."
         }
       }
     }

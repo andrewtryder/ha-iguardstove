@@ -554,8 +554,8 @@ async def test_options_flow(hass: HomeAssistant) -> None:
         CONF_ALLOW_REMOTE_UNLOCK: True,
         CONF_SCAN_INTERVAL: 120,
         CONF_ENABLE_ACTIVITY_EVENTS: False,
-        CONF_REDISCOVER_DEVICES: True,
     }
+    assert CONF_REDISCOVER_DEVICES not in entry.options
 
 
 async def test_flow_reconfigure_success(hass: HomeAssistant) -> None:
@@ -586,7 +586,6 @@ async def test_flow_reconfigure_success(hass: HomeAssistant) -> None:
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_USERNAME: "user@example.com",
                 CONF_PASSWORD: "new_password",
             },
         )
@@ -595,47 +594,45 @@ async def test_flow_reconfigure_success(hass: HomeAssistant) -> None:
     assert result2["type"] is FlowResultType.ABORT
     assert result2["reason"] == "reconfigure_successful"
     assert entry.data[CONF_PASSWORD] == "new_password"
+    assert entry.unique_id == "user@example.com"
+    assert entry.data[CONF_USERNAME] == "user@example.com"
 
 
-async def test_flow_reconfigure_account_mismatch(hass: HomeAssistant) -> None:
-    """Test reconfiguring to an already configured existing account aborts."""
-    entry1 = MockConfigEntry(
+async def test_flow_reconfigure_preserves_account_identity(hass: HomeAssistant) -> None:
+    """Test reconfigure only updates password and keeps account unique_id fixed."""
+    entry = MockConfigEntry(
         domain=DOMAIN,
-        unique_id="user1@example.com",
+        unique_id="user@example.com",
         data={
-            CONF_USERNAME: "user1@example.com",
-            CONF_PASSWORD: "password1",
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "password",
             "devices": MOCK_DEVICES,
         },
     )
-    entry1.add_to_hass(hass)
+    entry.add_to_hass(hass)
 
-    entry2 = MockConfigEntry(
-        domain=DOMAIN,
-        unique_id="user2@example.com",
-        data={
-            CONF_USERNAME: "user2@example.com",
-            CONF_PASSWORD: "password2",
+    result = await entry.start_reconfigure_flow(hass)
+    schema_keys = {marker.schema for marker in result["data_schema"].schema}
+    assert CONF_USERNAME not in schema_keys
+    assert CONF_PASSWORD in schema_keys
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": ["AABBCCDD1234"],
             "devices": MOCK_DEVICES,
         },
-    )
-    entry2.add_to_hass(hass)
+    ) as mock_validate:
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_PASSWORD: "new_password"},
+        )
+        await hass.async_block_till_done()
 
-    result = await entry2.start_reconfigure_flow(hass)
-    assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "reconfigure"
-
-    result2 = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            CONF_USERNAME: "user1@example.com",
-            CONF_PASSWORD: "password1",
-        },
-    )
-    await hass.async_block_till_done()
-
-    assert result2["type"] is FlowResultType.ABORT
-    assert result2["reason"] == "already_configured"
+    assert result2["reason"] == "reconfigure_successful"
+    assert mock_validate.await_args.args[1][CONF_USERNAME] == "user@example.com"
+    assert entry.unique_id == "user@example.com"
 
 
 async def test_flow_reconfigure_invalid_auth(hass: HomeAssistant) -> None:
@@ -662,7 +659,6 @@ async def test_flow_reconfigure_invalid_auth(hass: HomeAssistant) -> None:
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_USERNAME: "user@example.com",
                 CONF_PASSWORD: "wrong_password",
             },
         )
@@ -696,7 +692,6 @@ async def test_flow_reconfigure_cannot_connect(hass: HomeAssistant) -> None:
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_USERNAME: "user@example.com",
                 CONF_PASSWORD: "new_password",
             },
         )
@@ -730,7 +725,6 @@ async def test_flow_reconfigure_unknown_exception(hass: HomeAssistant) -> None:
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
-                CONF_USERNAME: "user@example.com",
                 CONF_PASSWORD: "new_password",
             },
         )
@@ -738,3 +732,42 @@ async def test_flow_reconfigure_unknown_exception(hass: HomeAssistant) -> None:
 
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {"base": "unknown"}
+
+
+async def test_options_flow_rediscover_triggers_coordinator(
+    hass: HomeAssistant,
+) -> None:
+    """Rediscover checkbox runs one-shot discovery and is not persisted."""
+    from custom_components.iguardstove.const import (
+        CONF_ALLOW_REMOTE_UNLOCK,
+        CONF_ENABLE_ACTIVITY_EVENTS,
+        CONF_REDISCOVER_DEVICES,
+        CONF_SCAN_INTERVAL,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator = MagicMock()
+    coordinator.async_rediscover_now = AsyncMock(return_value=MOCK_DEVICES)
+    entry.runtime_data = MagicMock(coordinator=coordinator)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_ALLOW_REMOTE_UNLOCK: False,
+            CONF_SCAN_INTERVAL: 60,
+            CONF_ENABLE_ACTIVITY_EVENTS: True,
+            CONF_REDISCOVER_DEVICES: True,
+        },
+    )
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
+    coordinator.async_rediscover_now.assert_awaited_once()
+    assert CONF_REDISCOVER_DEVICES not in entry.options

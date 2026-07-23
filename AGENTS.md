@@ -7,7 +7,7 @@ Welcome! You are working on the `ha-iguardstove` repository, a Home Assistant cu
 *   **Purpose:** This is a first-class Home Assistant custom integration that auto-discovers and integrates iGuardStove devices. It replaces an older `multiscrape` blueprint approach.
 *   **Authentication Flow:** The integration authenticates against `manage.iguardfire.com` using a standard session-cookie and Django CSRF token login flow (similar to a web browser).
 *   **Data Retrieval:** The integration relies on **web scraping** using `BeautifulSoup` rather than a standard REST API. It scrapes device detail pages.
-*   **Polling Interval:** Scraping happens every **60 seconds**.
+*   **Polling Interval:** Scraping happens on a configurable interval (**30–300 seconds**, default **60**).
 *   **Lock Mechanism:** The `lock` toggle (`lock` entity) POSTs to the same device page form that the "Lock" button on the website uses. **Critical:** The portal uses a single toggle action (not separate lock/unlock endpoints). Therefore, the integration *must* check the current lock state before acting to avoid double-flips.
 
 ## 2. Architecture & Code Organization
@@ -51,6 +51,9 @@ To ensure the custom component structure and `manifest.json` are valid according
 ```bash
 docker run --rm -v "$(pwd)/custom_components:/github/workspace/custom_components" ghcr.io/home-assistant/hassfest
 ```
+
+### Release & branch protection
+See [`docs/release.md`](docs/release.md) for CI gating, required status checks, and the emergency break-glass procedure for the `main` ruleset.
 
 ## 4. Coding Conventions & Home Assistant Rules
 
