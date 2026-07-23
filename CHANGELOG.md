@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.6.0...v1.6.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* harden lock POST safety, CI gates, and device lifecycle ([#61](https://github.com/andrewtryder/ha-iguardstove/issues/61)) ([abb70a3](https://github.com/andrewtryder/ha-iguardstove/commit/abb70a32c18341b9bb7072392814143fee007130))
+
 ## [1.6.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.5.1...v1.6.0) (2026-07-23)
 
 
