@@ -1034,3 +1034,20 @@ async def test_event_suppression_when_disabled_in_options(hass: HomeAssistant) -
 
         # Event trigger suppressed because option is False
         mock_trigger.assert_not_called()
+
+
+async def test_event_store_manager_clear_device(hass: HomeAssistant) -> None:
+    """clear_device removes fingerprints and schedules a save."""
+    from unittest.mock import MagicMock
+
+    from custom_components.iguardstove.event import EventStoreManager
+
+    mock_store = MagicMock()
+    mock_store.async_load = AsyncMock(return_value={"seen_events": {"DEV1": ["fp1"]}})
+    mock_store.async_delay_save = MagicMock()
+    manager = EventStoreManager(mock_store)
+    await manager.async_load()
+    assert "DEV1" in manager._seen_events
+    manager.clear_device("DEV1")
+    assert "DEV1" not in manager._seen_events
+    mock_store.async_delay_save.assert_called()

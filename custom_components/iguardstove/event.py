@@ -75,6 +75,12 @@ class EventStoreManager:
         }
         self._store.async_delay_save(self._data_to_save, delay=2.0)
 
+    def clear_device(self, device_id: str) -> None:
+        """Remove deduplication state for a device and schedule save."""
+        if device_id in self._seen_events:
+            del self._seen_events[device_id]
+            self._store.async_delay_save(self._data_to_save, delay=2.0)
+
     @callback
     def _data_to_save(self) -> dict[str, Any]:
         """Return serialized data dictionary for Home Assistant Store delayed save."""
@@ -98,6 +104,7 @@ async def async_setup_entry(
     )
     store_manager = EventStoreManager(store)
     await store_manager.async_load()
+    entry.runtime_data.event_store = store_manager
 
     known_devices = set(coordinator.device_ids)
     entities: list[IGuardStoveActivityEventEntity] = [

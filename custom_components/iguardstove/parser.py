@@ -372,25 +372,35 @@ def _parse_lock_icon_state(soup: BeautifulSoup) -> bool | None:
     return None
 
 
-EXPLICIT_LOCKED_PATTERNS = (
-    "locked out for the night",
-    "locked out",
-    "manually locked",
-    "caregiver locked",
-    "night lock",
-    "locked",
-)
-
+# Unlocked phrases are checked first so substrings like "locked" inside
+# "unlocked" cannot misclassify the state.
 EXPLICIT_UNLOCKED_PATTERNS = (
+    "stove is unlocked",
+    "unlocked",
+    "not locked",
     "stove is off",
     "stove is on",
     "stove has been shut off",
     "stove off",
     "stove on",
     "stove shut off",
-    "unlocked",
     "countdown",
     "manual timer",
+)
+
+EXPLICIT_LOCKED_PATTERNS = (
+    "locked out for the night",
+    "locked out",
+    "manually locked",
+    "caregiver locked",
+    "night lock",
+)
+
+# Ambiguous lock-related phrases that must not claim locked/unlocked.
+AMBIGUOUS_LOCK_TEXT_PATTERNS = (
+    "lock unavailable",
+    "unlock pending",
+    "previously locked",
 )
 
 
@@ -404,11 +414,12 @@ def _parse_lock_text_state(
         return None
 
     lower = raw_status.lower()
-    if any(pat in lower for pat in EXPLICIT_LOCKED_PATTERNS):
-        return True
-
+    if any(pat in lower for pat in AMBIGUOUS_LOCK_TEXT_PATTERNS):
+        return None
     if any(pat in lower for pat in EXPLICIT_UNLOCKED_PATTERNS):
         return False
+    if any(pat in lower for pat in EXPLICIT_LOCKED_PATTERNS):
+        return True
 
     return None
 

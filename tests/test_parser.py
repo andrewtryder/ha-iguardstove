@@ -828,3 +828,27 @@ def test_events_midnight_date_rollover_and_dst() -> None:
     assert events[2].occurred_at.hour == 23
     assert events[2].occurred_at.minute == 59
     assert events[0].occurred_at.tzinfo == tz
+
+
+def test_lock_text_unlocked_not_misclassified_as_locked() -> None:
+    """Text containing 'unlocked' must not match the old 'locked' substring bug."""
+    from bs4 import BeautifulSoup
+
+    from custom_components.iguardstove.parser import _parse_lock_text_state
+
+    cases = {
+        "unlocked": False,
+        "Stove is unlocked": False,
+        "not locked": False,
+        "lock unavailable": None,
+        "unlock pending": None,
+        "previously locked": None,
+        "arbitrary lock-related gibberish": None,
+        "manually locked": True,
+        "LOCKED OUT for the night": True,
+    }
+    for status, expected in cases.items():
+        soup = BeautifulSoup(
+            f'<span class="stove_status_text">{status}</span>', "html.parser"
+        )
+        assert _parse_lock_text_state(soup) is expected, status

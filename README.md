@@ -33,15 +33,15 @@ A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.i
 | **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
 | **Fires Prevented** | `sensor` (diagnostic) | Total cumulative shutoff events recorded by the stove unit |
 | **Stove Lock** | `lock` (disabled by default) | Remote lock/unlock from HA (requires entity opt-in and separate Options Flow permission for unlock) |
-| **Activity** | `event` | Portal activity events (e.g. Activity Seen, Night Lock ON/OFF, Stove Turned ON/OFF) detected during the 60-second polling cycle |
+| **Activity** | `event` | Portal activity events (e.g. Activity Seen, Night Lock ON/OFF, Stove Turned ON/OFF) detected during each polling cycle |
 
-All stoves registered to your account are discovered automatically at setup time, with dynamic discovery running every 6 hours and state updates polled every 60 seconds.
+All stoves registered to your account are discovered automatically at setup time, with dynamic discovery running every 6 hours and state updates polled on a configurable interval (**30–300 seconds**, default **60**).
 
 ---
 
 ## Activity Events
 
-The integration parses the "Today's Events" table directly from the existing device detail HTML page fetched every 60 seconds (with **no additional HTTP requests**).
+The integration parses the "Today's Events" table directly from the existing device detail HTML page fetched on each poll (with **no additional HTTP requests**).
 
 ### Supported Event Types
 - `activity_seen` ("Activity Seen")
@@ -128,7 +128,7 @@ No YAML configuration is needed.
 ## Architecture & Limitations
 
 - **Web Scraping Dependency**: The integration authenticates against `manage.iguardfire.com` using a Django CSRF token + session cookie flow and scrapes HTML detail pages using BeautifulSoup. Because there is no official REST API, breaking changes to the portal's DOM layout may require integration updates.
-- **Polling Interval**: Device pages are polled every **60 seconds**.
+- **Polling Interval**: Device pages are polled on a configurable interval (**30–300 seconds**, default **60**).
 - **Dynamic Discovery**: New stoves added to an existing account are discovered automatically during periodic background discovery passes (every **6 hours**).
 
 ### Entities per Device

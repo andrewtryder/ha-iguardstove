@@ -17,6 +17,7 @@ from .const import (
     USER_AGENT,
 )
 from .exceptions import (
+    AmbiguousRequestError,
     CannotConnect,
     DevicePageParseError,
     EventParseError,
@@ -38,11 +39,18 @@ from .parser import (
 from .types import DeviceData, DeviceSummary
 
 REQUEST_TIMEOUT = 15
+MAX_REDIRECTS = 5
+MAX_SAFE_ATTEMPTS = 3
+SAFE_METHODS = frozenset({"GET", "HEAD"})
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+GET_AFTER_REDIRECT = frozenset({301, 302, 303})
 
 _LOGGER = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 __all__ = [
+    "AmbiguousRequestError",
     "CannotConnect",
     "DevicePageParseError",
     "EventParseError",
@@ -106,18 +114,21 @@ class IGuardStoveClient:
                 f"URL origin mismatch: expected {expected.host}, got {target.host}"
             )
 
-    def _check_response_status(
+    def _resolve_redirect_url(
+        self, current_url: str | yarl.URL, location: str
+    ) -> yarl.URL:
+        """Resolve a Location header against the current URL and validate origin."""
+        next_url = yarl.URL(current_url).join(yarl.URL(location))
+        self._validate_origin(next_url)
+        return next_url
+
+    def _check_final_response(
         self,
         resp: aiohttp.ClientResponse,
         url: str,
         is_login_page: bool,
-        attempt: int,
-        max_attempts: int,
-    ) -> bool:
-        """Check response status and redirect hops. Returns True if request should retry."""
-        for hist_resp in resp.history:
-            self._validate_origin(hist_resp.url)
-
+    ) -> None:
+        """Validate a non-redirect response status, origin, and content type."""
         final_url = resp.url
         self._validate_origin(final_url)
 
@@ -132,8 +143,10 @@ class IGuardStoveClient:
                 f"Authentication failure (HTTP {resp.status}) accessing {url}"
             )
 
-        if resp.status in (429, 500, 502, 503, 504) and attempt < max_attempts - 1:
-            return True
+        if resp.status in RETRYABLE_STATUSES:
+            raise AmbiguousRequestError(
+                f"HTTP request to {url} returned status {resp.status}"
+            )
 
         if resp.status != 200:
             raise CannotConnect(f"HTTP request to {url} returned status {resp.status}")
@@ -146,8 +159,6 @@ class IGuardStoveClient:
             and "text/plain" not in content_type
         ):
             raise CannotConnect(f"Unexpected content type {content_type!r} from {url}")
-
-        return False
 
     async def _read_response_html(
         self, resp: aiohttp.ClientResponse, max_html_size: int, url: str
@@ -177,45 +188,101 @@ class IGuardStoveClient:
         allow_redirects: bool = True,
         is_login_page: bool = False,
     ) -> tuple[int, str, yarl.URL]:
-        """Shared request helper validating status, origin, content-type, login redirects, backoff, and max size."""
+        """Shared request helper with safe-method retries and pre-validated redirects.
+
+        ``allow_redirects`` is accepted for call-site compatibility but redirects are
+        always followed manually after validating each Location header.
+        """
+        del allow_redirects  # Always follow manually after origin validation.
         self._validate_origin(url)
         req_headers = {**self._headers, **(headers or {})}
-
-        max_attempts = 3
+        method_upper = method.upper()
+        can_retry = method_upper in SAFE_METHODS
+        max_attempts = MAX_SAFE_ATTEMPTS if can_retry else 1
         max_html_size = 5 * 1024 * 1024  # 5MB limit
 
         for attempt in range(max_attempts):
             try:
-                async with asyncio.timeout(REQUEST_TIMEOUT):
-                    async with self._session.request(
-                        method,
-                        url,
-                        headers=req_headers,
-                        data=data,
-                        allow_redirects=allow_redirects,
-                    ) as resp:
-                        if self._check_response_status(
-                            resp, url, is_login_page, attempt, max_attempts
-                        ):
-                            await asyncio.sleep(0.5 * (2**attempt))
-                            continue
-
-                        html = await self._read_response_html(resp, max_html_size, url)
-                        return resp.status, html, resp.url
+                return await self._request_with_redirects(
+                    method_upper,
+                    url,
+                    req_headers=req_headers,
+                    data=data,
+                    is_login_page=is_login_page,
+                    max_html_size=max_html_size,
+                )
+            except AmbiguousRequestError:
+                if can_retry and attempt < max_attempts - 1:
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    continue
+                raise
             except (InvalidAuth, CannotConnect):
                 raise
             except TimeoutError as ex:
-                if attempt < max_attempts - 1:
+                ambiguous = AmbiguousRequestError(f"Timeout connecting to {url}")
+                ambiguous.__cause__ = ex
+                if can_retry and attempt < max_attempts - 1:
                     await asyncio.sleep(0.5 * (2**attempt))
                     continue
-                raise CannotConnect(f"Timeout connecting to {url}") from ex
+                raise ambiguous from ex
             except aiohttp.ClientError as ex:
-                if attempt < max_attempts - 1:
+                ambiguous = AmbiguousRequestError(
+                    f"Network error during {method_upper} to {url}"
+                )
+                ambiguous.__cause__ = ex
+                if can_retry and attempt < max_attempts - 1:
                     await asyncio.sleep(0.5 * (2**attempt))
                     continue
-                raise CannotConnect(f"Network error during {method} to {url}") from ex
+                raise ambiguous from ex
 
         raise CannotConnect(f"Request to {url} failed after retries")
+
+    async def _request_with_redirects(
+        self,
+        method: str,
+        url: str,
+        *,
+        req_headers: dict[str, str],
+        data: Any,
+        is_login_page: bool,
+        max_html_size: int,
+    ) -> tuple[int, str, yarl.URL]:
+        """Perform one logical request, validating and following redirects manually."""
+        current_method = method
+        current_url = url
+        current_data = data
+
+        for _ in range(MAX_REDIRECTS + 1):
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                async with self._session.request(
+                    current_method,
+                    current_url,
+                    headers=req_headers,
+                    data=current_data,
+                    allow_redirects=False,
+                ) as resp:
+                    if resp.status in REDIRECT_STATUSES:
+                        location = resp.headers.get("Location")
+                        if not location:
+                            raise CannotConnect(
+                                f"Redirect from {current_url} missing Location header"
+                            )
+                        next_url = self._resolve_redirect_url(current_url, location)
+                        if resp.status in GET_AFTER_REDIRECT:
+                            current_method = "GET"
+                            current_data = None
+                        current_url = str(next_url)
+                        continue
+
+                    self._check_final_response(resp, current_url, is_login_page)
+                    html = await self._read_response_html(
+                        resp, max_html_size, current_url
+                    )
+                    return resp.status, html, resp.url
+
+        raise CannotConnect(
+            f"Too many redirects (>{MAX_REDIRECTS}) while requesting {url}"
+        )
 
     async def async_login(self, current_generation: int | None = None) -> bool:
         """Log in to the iGuardFire management portal with account-level lock serialization."""
@@ -232,38 +299,55 @@ class IGuardStoveClient:
                 )
                 return True
 
-            _LOGGER.debug("Fetching iGuardFire login page for CSRF token")
-            _, html, _ = await self._request("GET", LOGIN_URL, is_login_page=True)
+            last_error: Exception | None = None
+            for attempt in range(2):
+                try:
+                    await self._async_login_once()
+                    self._auth_generation += 1
+                    _LOGGER.info(
+                        "iGuardStove login successful (generation %d)",
+                        self._auth_generation,
+                    )
+                    return True
+                except AmbiguousRequestError as err:
+                    last_error = err
+                    _LOGGER.warning(
+                        "Ambiguous login failure (attempt %d); restarting CSRF login flow: %s",
+                        attempt + 1,
+                        err,
+                    )
 
-            csrf_token = parse_login_csrf(html)
-            if not csrf_token:
-                raise CannotConnect("csrfmiddlewaretoken not found on login page")
+            raise CannotConnect(
+                "Login failed after restarting CSRF flow"
+            ) from last_error
 
-            _LOGGER.debug("CSRF token obtained")
-            payload = {
-                "csrfmiddlewaretoken": csrf_token,
-                "login": self.username,
-                "password": self.password,
-            }
-            post_headers = {"Referer": LOGIN_URL}
+    async def _async_login_once(self) -> None:
+        """Perform a single CSRF login cycle (GET token + POST credentials)."""
+        _LOGGER.debug("Fetching iGuardFire login page for CSRF token")
+        _, html, _ = await self._request("GET", LOGIN_URL, is_login_page=True)
 
-            _LOGGER.debug("Submitting login credentials")
-            _, login_html, final_url = await self._request(
-                "POST",
-                LOGIN_URL,
-                data=payload,
-                headers=post_headers,
-                allow_redirects=True,
-                is_login_page=True,
-            )
+        csrf_token = parse_login_csrf(html)
+        if not csrf_token:
+            raise CannotConnect("csrfmiddlewaretoken not found on login page")
 
-            self._validate_login_response(login_html, final_url)
-            self._auth_generation += 1
-            _LOGGER.info(
-                "iGuardStove login successful (generation %d)",
-                self._auth_generation,
-            )
-            return True
+        _LOGGER.debug("CSRF token obtained")
+        payload = {
+            "csrfmiddlewaretoken": csrf_token,
+            "login": self.username,
+            "password": self.password,
+        }
+        post_headers = {"Referer": LOGIN_URL}
+
+        _LOGGER.debug("Submitting login credentials")
+        _, login_html, final_url = await self._request(
+            "POST",
+            LOGIN_URL,
+            data=payload,
+            headers=post_headers,
+            is_login_page=True,
+        )
+
+        self._validate_login_response(login_html, final_url)
 
     def _validate_login_response(self, login_html: str, final_url: yarl.URL) -> None:
         """Validate login post response HTML and final redirect URL."""
@@ -326,7 +410,14 @@ class IGuardStoveClient:
         data = self._parse_device_page(
             device_id, html, event_date=event_date, tzinfo=tzinfo
         )
-        _LOGGER.debug("Parsed device data for %s: %s", device_id, data)
+        _LOGGER.debug(
+            "Parsed device %s: status=%s lock=%s temp=%s events=%d",
+            device_id,
+            data.get("status"),
+            data.get("is_locked"),
+            data.get("temperature"),
+            len(data.get("today_events") or ()),
+        )
         return data
 
     def _parse_device_page(
@@ -380,7 +471,12 @@ class IGuardStoveClient:
             return
 
         await self._execute_lock_state_change(
-            url, device_id, target_locked, form_data, retry_login
+            url,
+            device_id,
+            target_locked,
+            form_data,
+            retry_login,
+            allow_controlled_retry=True,
         )
 
     async def _async_fetch_verification_page(
@@ -403,6 +499,32 @@ class IGuardStoveClient:
                 )
             raise
 
+    async def _confirm_lock_state(
+        self,
+        url: str,
+        device_id: str,
+        target_locked: bool,
+        post_html: str | None,
+        retry_login: bool,
+    ) -> bool:
+        """Return True if device page confirms the target lock state."""
+        if post_html is not None:
+            try:
+                post_soup = BeautifulSoup(post_html, "html.parser")
+                validate_device_page_invariants(post_soup, device_id)
+                final_locked = parse_lock_state(post_soup)
+                if final_locked == target_locked:
+                    return True
+            except (DevicePageParseError, InvalidAuth):
+                pass
+
+        refetch_html = await self._async_fetch_verification_page(
+            url, device_id, retry_login=retry_login
+        )
+        refetch_soup = BeautifulSoup(refetch_html, "html.parser")
+        validate_device_page_invariants(refetch_soup, device_id)
+        return parse_lock_state(refetch_soup) == target_locked
+
     async def _execute_lock_state_change(
         self,
         url: str,
@@ -410,6 +532,8 @@ class IGuardStoveClient:
         target_locked: bool,
         form_data: LockFormData,
         retry_login: bool,
+        *,
+        allow_controlled_retry: bool,
     ) -> None:
         """Perform lock state change HTTP POST and verify state update."""
         expected_button_name = "lock" if target_locked else "unlock"
@@ -436,6 +560,7 @@ class IGuardStoveClient:
             post_url,
         )
 
+        post_html: str | None
         try:
             _, post_html, _ = await self._request(
                 "POST", post_url, headers=post_headers, data=payload
@@ -448,31 +573,63 @@ class IGuardStoveClient:
                     device_id, target_locked, retry_login=False
                 )
             raise
-
-        final_locked: bool | None = None
-        try:
-            post_soup = BeautifulSoup(post_html, "html.parser")
-            validate_device_page_invariants(post_soup, device_id)
-            final_locked = parse_lock_state(post_soup)
-        except (DevicePageParseError, InvalidAuth):
-            final_locked = None
-
-        if final_locked != target_locked:
-            refetch_html = await self._async_fetch_verification_page(
-                url, device_id, retry_login=retry_login
+        except AmbiguousRequestError as err:
+            _LOGGER.warning(
+                "Ambiguous lock POST for device %s; verifying state before any retry: %s",
+                device_id,
+                err,
             )
-            refetch_soup = BeautifulSoup(refetch_html, "html.parser")
-            validate_device_page_invariants(refetch_soup, device_id)
-            final_locked = parse_lock_state(refetch_soup)
+            if await self._confirm_lock_state(
+                url, device_id, target_locked, None, retry_login
+            ):
+                _LOGGER.info(
+                    "Lock state for device %s already at target %s after ambiguous POST",
+                    device_id,
+                    target_locked,
+                )
+                return
 
-        if final_locked != target_locked:
-            raise CannotConnect(
-                f"Failed to confirm lock state transition for device {device_id}: "
-                f"expected {target_locked}, got {final_locked}"
+            if not allow_controlled_retry:
+                raise CannotConnect(
+                    f"Failed to confirm lock state transition for device {device_id}: "
+                    f"expected {target_locked} after ambiguous POST"
+                ) from err
+
+            _, refresh_html, _ = await self._request("GET", url)
+            try:
+                refreshed_form = parse_lock_form(refresh_html, device_id)
+            except ValueError as ex:
+                raise CannotConnect(str(ex)) from ex
+
+            if refreshed_form.is_currently_locked == target_locked:
+                _LOGGER.info(
+                    "Lock state for device %s already at target %s after form refresh",
+                    device_id,
+                    target_locked,
+                )
+                return
+
+            await self._execute_lock_state_change(
+                url,
+                device_id,
+                target_locked,
+                refreshed_form,
+                retry_login,
+                allow_controlled_retry=False,
             )
+            return
 
-        _LOGGER.info(
-            "Lock state for device %s successfully changed to %s",
-            device_id,
-            target_locked,
+        if await self._confirm_lock_state(
+            url, device_id, target_locked, post_html, retry_login
+        ):
+            _LOGGER.info(
+                "Lock state for device %s successfully changed to %s",
+                device_id,
+                target_locked,
+            )
+            return
+
+        raise CannotConnect(
+            f"Failed to confirm lock state transition for device {device_id}: "
+            f"expected {target_locked}"
         )

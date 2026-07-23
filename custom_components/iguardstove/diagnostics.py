@@ -69,8 +69,23 @@ async def async_get_config_entry_diagnostics(
     # Build sensitive tokens list to scrub from nested text
     username = entry.data.get(CONF_USERNAME, "")
     password = entry.data.get(CONF_PASSWORD, "")
+    device_tokens: list[str] = []
+    for d in entry.data.get("devices", []):
+        if isinstance(d, dict):
+            for key in ("device_id", "device_name"):
+                val = d.get(key)
+                if isinstance(val, str) and val:
+                    device_tokens.append(val)
+    device_tokens.extend(coordinator.device_ids)
+    if coordinator.data:
+        for did, dev_dict in coordinator.data.devices.items():
+            device_tokens.append(did)
+            name = dev_dict.get("device_name")
+            if isinstance(name, str) and name:
+                device_tokens.append(name)
+
     sensitive_tokens = tuple(
-        t for t in (username, password) if t and isinstance(t, str)
+        t for t in (username, password, *device_tokens) if t and isinstance(t, str)
     )
 
     # Sanitize config entry metadata explicitly

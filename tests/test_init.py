@@ -224,7 +224,7 @@ async def test_setup_entry_coordinator_cannot_connect(hass: HomeAssistant) -> No
 
 
 async def test_setup_entry_no_devices(hass: HomeAssistant) -> None:
-    """Test that setup returns False (SETUP_ERROR) when no devices are found."""
+    """Test that setup remains loaded when the portal has no devices."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -247,7 +247,8 @@ async def test_setup_entry_no_devices(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.coordinator.device_ids == []
 
 
 async def test_setup_reload_and_unload_session_cleanup(hass: HomeAssistant) -> None:

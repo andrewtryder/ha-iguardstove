@@ -9,6 +9,10 @@ class CannotConnect(IGuardStoveException):
     """Exception to indicate connection error."""
 
 
+class AmbiguousRequestError(CannotConnect):
+    """Request may have been applied; caller must verify before retrying."""
+
+
 class InvalidAuth(IGuardStoveException):
     """Exception to indicate authentication error."""
 
