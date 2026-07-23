@@ -19,7 +19,12 @@ from .const import (
     SEL_STOVE_TITLE,
     STATUS_MAP,
 )
-from .exceptions import DevicePageParseError, EventParseError, InvalidAuth
+from .exceptions import (
+    DashboardParseError,
+    DevicePageParseError,
+    EventParseError,
+    InvalidAuth,
+)
 from .models import StoveEvent, StoveEventType
 from .types import DeviceData, DeviceSummary
 
@@ -135,6 +140,17 @@ def has_password_input(html: str) -> bool:
 def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
     """Parse device links from account dashboard HTML."""
     soup = BeautifulSoup(html, "html.parser")
+
+    # 1. Reject login / auth pages
+    if (
+        soup.find("input", {"type": "password"})
+        or soup.find("input", {"name": ["login", "username"]})
+        or soup.find(class_="errorlist")
+        or soup.find(class_="alert-danger")
+        or soup.find("form", action=re.compile(r"/account/login/?", re.I))
+    ):
+        raise InvalidAuth("Auth or login page returned instead of account dashboard")
+
     devices: list[DeviceSummary] = []
     seen_device_ids: set[str] = set()
 
@@ -153,7 +169,26 @@ def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
                 seen_device_ids.add(device_id)
                 devices.append({"device_id": device_id, "device_name": name})
 
-    return devices
+    if devices:
+        return devices
+
+    # 2. Check for explicit valid empty dashboard page invariants
+    page_text = soup.get_text().casefold()
+    has_dashboard_structure = (
+        soup.find("a", href=re.compile(r"/account/logout/?", re.I)) is not None
+        or soup.find(class_=["stoves_list", "stove_line", "dashboard"]) is not None
+        or "no stoves" in page_text
+        or "no devices" in page_text
+        or "registered stoves" in page_text
+        or "your stoves" in page_text
+    )
+
+    if not has_dashboard_structure:
+        raise DashboardParseError(
+            "Account dashboard HTML missing expected page structure or device list"
+        )
+
+    return []
 
 
 def parse_event_table(

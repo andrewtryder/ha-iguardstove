@@ -84,11 +84,6 @@ class IGuardStoveClient:
         """Return the current authentication generation count."""
         return self._auth_generation
 
-    async def async_close(self) -> None:
-        """Close underlying HTTP session resources if open."""
-        if not self._session.closed:
-            await self._session.close()
-
     def _get_device_lock(self, device_id: str) -> asyncio.Lock:
         """Get or create per-device asyncio lock."""
         if device_id not in self._device_locks:

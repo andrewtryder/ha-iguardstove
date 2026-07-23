@@ -29,9 +29,6 @@
 * address Home Assistant quality scale recommendations ([2086050](https://github.com/andrewtryder/ha-iguardstove/commit/20860505ddc7436335afce16944de0cfdc8dc11f))
 * **ci:** unpin requirements_test.txt package versions to resolve pip dependency resolution conflict ([914b924](https://github.com/andrewtryder/ha-iguardstove/commit/914b92437a74469b5ccf2edf6f4575479b6f6a03))
 * **ci:** update workflow action SHAs to valid commit hashes and remove manifest core requirement ([9b4164b](https://github.com/andrewtryder/ha-iguardstove/commit/9b4164ba848fd7e10f43ab4045d813b35ef2d22a))
-* **client:** resolve account-level login lock, verification GET recovery, discovery throttling, and stale device reconciliation ([8991561](https://github.com/andrewtryder/ha-iguardstove/commit/89915617300c822e0fb5b6ef17fbfefb5ddbbf62))
-* **lock:** parse lock state fail-safe and validate device page invariants ([4de1b6d](https://github.com/andrewtryder/ha-iguardstove/commit/4de1b6dbb5b9f7a70a8d8e5ee60ab0602958376e))
-* **event:** fix event fingerprint filtering, timezone-naive timestamp pruning, and quality scale assessment ([d77714c](https://github.com/andrewtryder/ha-iguardstove/commit/d77714ca10787e915fa016b8e84c98642751f1ef))
 
 ## [1.3.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.2.0...v1.3.0) (2026-07-22)
 

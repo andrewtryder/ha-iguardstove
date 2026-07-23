@@ -7,6 +7,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from custom_components.iguardstove.exceptions import (
+    DashboardParseError,
     DevicePageParseError,
     EventParseError,
     InvalidAuth,
@@ -152,6 +153,25 @@ def test_parse_dashboard_devices() -> None:
         "device_name": "Main Kitchen Stove",
     }
     assert devices[1] == {"device_id": "EEFF00112233", "device_name": "iGuardStove"}
+
+
+def test_parse_dashboard_devices_empty_valid_account() -> None:
+    """Test parsing valid empty dashboard page."""
+    valid_empty_html = """<html><body><div class="dashboard">No stoves registered to your account.</div><a href="/account/logout/">Logout</a></body></html>"""
+    assert parse_dashboard_devices(valid_empty_html) == []
+
+
+def test_parse_dashboard_devices_malformed_html_raises_error() -> None:
+    """Test parsing arbitrary malformed HTML raises DashboardParseError."""
+    malformed_html = "<html><body><h1>Maintenance Page</h1></body></html>"
+    with pytest.raises(DashboardParseError):
+        parse_dashboard_devices(malformed_html)
+
+
+def test_parse_dashboard_devices_auth_page_raises_error() -> None:
+    """Test parsing login/auth page raises InvalidAuth."""
+    with pytest.raises(InvalidAuth):
+        parse_dashboard_devices(LOGIN_PAGE_HTML)
 
 
 def test_parse_device_page() -> None:

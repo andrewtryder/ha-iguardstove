@@ -19,3 +19,7 @@ class EventParseError(IGuardStoveException):
 
 class DevicePageParseError(IGuardStoveException):
     """Exception to indicate failure validating core device page invariants."""
+
+
+class DashboardParseError(IGuardStoveException):
+    """Exception to indicate failure parsing account dashboard devices."""

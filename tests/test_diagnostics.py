@@ -1,5 +1,6 @@
 """Tests for iGuardStove diagnostics."""
 
+import hashlib
 from unittest.mock import patch
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -24,7 +25,7 @@ MOCK_DEVICE_DATA = {
 
 
 async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
-    """Test that diagnostics output redacts sensitive username and password fields."""
+    """Test that diagnostics output redacts sensitive username, password, and hardware/room identifiers."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
@@ -60,4 +61,12 @@ async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
     entry_data = diag["config_entry"]["data"]
     assert entry_data[CONF_USERNAME] == "**REDACTED**"
     assert entry_data[CONF_PASSWORD] == "**REDACTED**"
-    assert diag["coordinator"]["device_ids"] == ["AABBCCDD1234"]
+
+    expected_anon_id = hashlib.sha256("AABBCCDD1234".encode("utf-8")).hexdigest()[:8]
+    assert diag["coordinator"]["device_ids"] == [expected_anon_id]
+
+    dev_data = diag["coordinator"]["data"]["devices"][expected_anon_id]
+    assert dev_data["device_id"] == expected_anon_id
+    assert dev_data["device_name"] == f"iGuardStove {expected_anon_id}"
+    assert dev_data["status"] == "Stove Off"
+    assert dev_data["temperature"] == 72.0

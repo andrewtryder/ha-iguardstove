@@ -18,6 +18,7 @@ from .client import (
     InvalidAuth,
 )
 from .const import DOMAIN
+from .exceptions import DashboardParseError
 from .models import CoordinatorData
 from .types import DeviceData
 
@@ -55,6 +56,7 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.client = client
         self.device_ids = list(device_ids)
         self._unavailable_devices: set[str] = set()
+        self._pending_stale_counts: dict[str, int] = {}
         self._last_discovery_time: datetime | None = None
         super().__init__(
             hass,
@@ -62,6 +64,44 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
+
+    def _reconcile_stale_devices(self, discovered_ids: set[str]) -> None:
+        """Reconcile stale devices after confirmed consecutive missing passes."""
+        # Clear pending stale count for any actively discovered devices
+        for did in discovered_ids:
+            self._pending_stale_counts.pop(did, None)
+
+        # Safeguard against dropping all known devices on a single empty discovery pass
+        if not discovered_ids and self.device_ids:
+            _LOGGER.warning(
+                "Dynamic discovery returned 0 devices while %d device(s) are registered (%s); retaining existing devices until confirmed",
+                len(self.device_ids),
+                self.device_ids,
+            )
+            return
+
+        stale_candidates = [did for did in self.device_ids if did not in discovered_ids]
+        stale_device_ids: list[str] = []
+        for did in stale_candidates:
+            count = self._pending_stale_counts.get(did, 0) + 1
+            self._pending_stale_counts[did] = count
+            if count >= 2:
+                stale_device_ids.append(did)
+
+        if stale_device_ids:
+            _LOGGER.info(
+                "Reconciling %d removed iGuardStove device(s): %s",
+                len(stale_device_ids),
+                stale_device_ids,
+            )
+            for did in stale_device_ids:
+                self.device_ids.remove(did)
+                self._pending_stale_counts.pop(did, None)
+                self._unavailable_devices.discard(did)
+                if self.data and did in self.data.devices:
+                    self.data.devices.pop(did, None)
+                if self.data and did in self.data.errors:
+                    self.data.errors.pop(did, None)
 
     async def _async_discover_devices(self) -> bool:
         """Perform dynamic device discovery pass and reconcile registered devices."""
@@ -88,28 +128,15 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                         new_device_ids,
                     )
 
-            stale_device_ids = [
-                did for did in self.device_ids if did not in discovered_ids
-            ]
-            if stale_device_ids:
-                _LOGGER.info(
-                    "Reconciling %d removed iGuardStove device(s): %s",
-                    len(stale_device_ids),
-                    stale_device_ids,
-                )
-                for did in stale_device_ids:
-                    self.device_ids.remove(did)
-                    self._unavailable_devices.discard(did)
-                    if self.data and did in self.data.devices:
-                        self.data.devices.pop(did, None)
-                    if self.data and did in self.data.errors:
-                        self.data.errors.pop(did, None)
-
+            self._reconcile_stale_devices(discovered_ids)
             return True
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed(
                 f"Authentication error during discovery pass: {err}"
             ) from err
+        except DashboardParseError as err:
+            _LOGGER.warning("Dashboard parse error during discovery pass: %s", err)
+            return False
         except Exception as err:
             _LOGGER.warning("Could not perform dynamic device discovery pass: %s", err)
             return False

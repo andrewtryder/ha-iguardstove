@@ -1,11 +1,11 @@
 blueprint:
   name: iGuardStove - Stove Safety Notification
   description: >-
-    Send notification alerts (with optional critical sound override) to mobile app devices when iGuardStove safety events occur.
+    Send notification alerts (with optional iOS companion app critical sound override) to selected notify entities when iGuardStove safety events occur.
   domain: automation
   source_url: https://github.com/andrewtryder/ha-iguardstove/blob/main/blueprints/automation/iguardstove/safety_notification.yaml
   homeassistant:
-    min_version: "2024.1.0"
+    min_version: "2026.3.0"
   input:
     iguardstove_event:
       name: iGuardStove Event Entity
@@ -15,13 +15,14 @@ blueprint:
           filter:
             - domain: event
               integration: iguardstove
-    notify_device:
-      name: Notification Device
-      description: Mobile app device to receive safety notifications.
+    notify_targets:
+      name: Notification Targets
+      description: Select notification entities (e.g., mobile app notify entities) to receive safety alerts.
       selector:
-        device:
+        entity:
+          multiple: true
           filter:
-            - integration: mobile_app
+            - domain: notify
     notification_title:
       name: Notification Title
       description: Title of the mobile notification.
@@ -30,7 +31,7 @@ blueprint:
         text: {}
     is_critical:
       name: Critical Notification
-      description: Send as a critical notification to override silent/Do Not Disturb mode on supported devices.
+      description: Send as a critical notification (iOS companion app specific critical sound override).
       default: false
       selector:
         boolean: {}
@@ -77,7 +78,12 @@ max: 10
 trigger:
   - platform: state
     entity_id: !input iguardstove_event
-    attribute: event_type
+    not_from:
+      - unknown
+      - unavailable
+    not_to:
+      - unknown
+      - unavailable
 
 condition:
   - condition: template
@@ -89,9 +95,9 @@ variables:
   is_critical_var: !input is_critical
 
 action:
-  - action: notify.notify
+  - action: notify.send_message
     target:
-      device_id: !input notify_device
+      entity_id: !input notify_targets
     data:
       title: !input notification_title
       message: >-

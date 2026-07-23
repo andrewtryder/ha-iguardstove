@@ -5,7 +5,7 @@ blueprint:
   domain: automation
   source_url: https://github.com/andrewtryder/ha-iguardstove/blob/main/blueprints/automation/iguardstove/selected_event_actions.yaml
   homeassistant:
-    min_version: "2024.1.0"
+    min_version: "2026.3.0"
   input:
     iguardstove_event:
       name: iGuardStove Event Entity
@@ -65,7 +65,12 @@ max: 10
 trigger:
   - platform: state
     entity_id: !input iguardstove_event
-    attribute: event_type
+    not_from:
+      - unknown
+      - unavailable
+    not_to:
+      - unknown
+      - unavailable
 
 condition:
   - condition: template

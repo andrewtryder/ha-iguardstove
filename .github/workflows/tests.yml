@@ -13,7 +13,11 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
-    name: Tests (Python 3.14)
+    strategy:
+      fail-fast: false
+      matrix:
+        ha-version: ["2026.3.0", "current"]
+    name: Tests (HA ${{ matrix.ha-version }}, Python 3.14)
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt -r requirements_test.txt -c constraints_test.txt
+          if [ "${{ matrix.ha-version }}" != "current" ]; then
+            pip install homeassistant==${{ matrix.ha-version }}
+          fi
 
       - name: Run tests with coverage
         run: >
