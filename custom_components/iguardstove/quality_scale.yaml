@@ -1,27 +1,86 @@
-# Quality Scale tracking for iGuardStove integration
-# https://developers.home-assistant.io/docs/integration_quality_scale
-
+# Quality Scale Assessment for iGuardStove Custom Integration
 rules:
-  # Bronze Tier Rules
-  action-exceptions: done
-  brand: done
-  common-modules: done
-  config-flow-test-coverage: done
-  config-flow: done
-  dependency-transitive: done
-  docs-high-level-description: done
-  docs-installation-instructions: done
-  docs-removal-instructions: done
-  entity-event-setup: done
-  entity-unique-id: done
-  has-entity-name: done
-  runtime-data: done
-  test-before-setup: done
-  unique-config-entry: done
+  # Bronze Tier
+  action-setup:
+    status: exempt
+    comment: The integration does not register custom service actions.
+  appropriate-polling:
+    status: done
+    comment: Polling interval is set to 60 seconds with DataUpdateCoordinator.
+  brands:
+    status: exempt
+    comment: Local brand icon files are supplied for HACS; official Core brands rule references the home-assistant/brands repository.
+  config-flow:
+    status: done
+    comment: Config flow enables setup and reauthentication via UI.
+  dependency-transparency:
+    status: done
+    comment: All dependencies in manifest.json are transparent and direct.
+  diagnostics:
+    status: done
+    comment: Implements async_get_config_entry_diagnostics with redacted credentials.
+  docs-actions:
+    status: exempt
+    comment: The integration only uses standard lock entity actions.
+  docs-conditions:
+    status: exempt
+    comment: The integration does not implement custom device conditions.
+  docs-high-level-description:
+    status: done
+    comment: README provides high-level integration summary.
+  docs-installation-instructions:
+    status: done
+    comment: README provides installation guide for HACS and manual setup.
+  docs-removal-instructions:
+    status: done
+    comment: README provides steps to remove the integration and entities.
+  docs-triggers:
+    status: exempt
+    comment: The integration does not implement custom device triggers.
+  entity-event-setup:
+    status: done
+    comment: Implements Home Assistant event entity platform for activity events.
+  entity-unique-id:
+    status: done
+    comment: All entities have deterministic unique IDs.
+  has-entity-name:
+    status: done
+    comment: Entities set _attr_has_entity_name = True.
+  runtime-data:
+    status: done
+    comment: Uses ConfigEntry.runtime_data for client and coordinator.
+  test-before-configure:
+    status: done
+    comment: Config flow validates login credentials and discovers devices before entry creation.
+  unique-config-entry:
+    status: done
+    comment: Enforces unique config entries based on lowercased username.
 
-  # Silver Tier Rules
-  action-setup: done
-  config-entry-unloading: done
-  log-when-unavailable: done
-  reauth-flow: done
-  test-coverage: done
+  # Silver Tier
+  action-exceptions:
+    status: done
+    comment: Entity actions catch client exceptions and raise HomeAssistantError with translation keys.
+  config-entry-unloading:
+    status: done
+    comment: Supports async_unload_entry and async_forward_entry_setups.
+  docs-configuration-parameters:
+    status: exempt
+    comment: Setup uses standard credentials in UI flow without YAML options schema parameters.
+  docs-installation-parameters:
+    status: done
+    comment: README details required username and password parameters.
+  entity-unavailable:
+    status: done
+    comment: Entities report unavailable when device connection or parsing fails.
+  integration-owner:
+    status: done
+    comment: Codeowners listed in manifest.json.
+  log-when-unavailable:
+    status: done
+    comment: Suppresses repeated log spam when a device remains unavailable.
+  parallel-updates:
+    status: done
+    comment: Entity platforms set PARALLEL_UPDATES appropriately.
+  reauthentication-flow:
+    status: done
+    comment: Implements reauthentication flow when credentials expire.
