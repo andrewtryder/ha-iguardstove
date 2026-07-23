@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.5.0...v1.5.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* correct client syntax, add bs4 requirement, and enforce release gating ([#54](https://github.com/andrewtryder/ha-iguardstove/issues/54)) ([e08e592](https://github.com/andrewtryder/ha-iguardstove/commit/e08e592ee8c5c1b61721fedf4daf7871846e571d))
+
 ## [1.5.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.4.1...v1.5.0) (2026-07-23)
 
 
