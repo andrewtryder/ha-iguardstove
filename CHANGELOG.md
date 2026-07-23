@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.6.1...v1.7.0) (2026-07-23)
+
+
+### Features
+
+* prepare 1.7.0 reliability and privacy hardening ([#64](https://github.com/andrewtryder/ha-iguardstove/issues/64)) ([4f60582](https://github.com/andrewtryder/ha-iguardstove/commit/4f605828696da445da59924e0ad9beab9c22987f))
+
 ## [1.6.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.6.0...v1.6.1) (2026-07-23)
 
 
