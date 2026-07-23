@@ -155,6 +155,53 @@ def test_parse_dashboard_devices() -> None:
     assert devices[1] == {"device_id": "EEFF00112233", "device_name": "iGuardStove"}
 
 
+def test_parse_dashboard_devices_identifier_variants() -> None:
+    """Accept lowercase and hyphenated hex IDs; preserve portal casing."""
+    html = """
+    <html><body>
+      <div class="stove_line">
+        <span class="stove_title">Lower Stove</span>
+        <a href="/devices/aabbccdd1234/">View</a>
+      </div>
+      <div class="stove_line">
+        <span class="stove_title">Hyphen Stove</span>
+        <a href="/devices/AABB-CCDD-1234/">View</a>
+      </div>
+      <div class="stove_line">
+        <span class="stove_title">Mixed Stove</span>
+        <a href="/devices/AaBb-CcDd-1234/">View</a>
+      </div>
+    </body></html>
+    """
+    devices = parse_dashboard_devices(html)
+    assert devices == [
+        {"device_id": "aabbccdd1234", "device_name": "Lower Stove"},
+        {"device_id": "AABB-CCDD-1234", "device_name": "Hyphen Stove"},
+        {"device_id": "AaBb-CcDd-1234", "device_name": "Mixed Stove"},
+    ]
+
+
+def test_parse_dashboard_devices_rejects_unsafe_identifiers() -> None:
+    """Reject absolute URLs, nested paths, dot segments, queries, and fragments."""
+    html = """
+    <html><body>
+      <a href="https://manage.iguardfire.com/devices/AABBCCDD1234/">abs</a>
+      <a href="//evil.example/devices/AABBCCDD1234/">proto</a>
+      <a href="/devices/../admin/">dotdot</a>
+      <a href="/devices/AABBCCDD1234/extra/">nested</a>
+      <a href="/devices/AABBCCDD1234/?q=1">query</a>
+      <a href="/devices/AABBCCDD1234/#frag">fragment</a>
+      <a href="/devices/AABB--CCDD/">empty-group</a>
+      <a href="/devices/-AABBCCDD/">leading-hyphen</a>
+      <a href="/devices/AABBCCDD-/">trailing-hyphen</a>
+      <a href="/devices/not_hex_id/">non-hex</a>
+      <div class="dashboard">No stoves</div>
+      <a href="/account/logout/">Logout</a>
+    </body></html>
+    """
+    assert parse_dashboard_devices(html) == []
+
+
 def test_parse_dashboard_devices_empty_valid_account() -> None:
     """Test parsing valid empty dashboard page."""
     valid_empty_html = """<html><body><div class="dashboard">No stoves registered to your account.</div><a href="/account/logout/">Logout</a></body></html>"""

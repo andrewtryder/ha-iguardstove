@@ -19,6 +19,7 @@ This is a Home Assistant custom integration that authenticates against `manage.i
 - Login uses a Django CSRF token + session cookie flow (same as a browser).
 - Device state is scraped from portal HTML detail pages with BeautifulSoup.
 - Because there is no official API, portal DOM changes can break parsing and may require integration updates.
+- Outbound portal requests use a stable User-Agent of `HomeAssistant-iGuardStove` (no integration release number) so Release Please version bumps cannot drift the request identity.
 
 ## Polling & discovery
 

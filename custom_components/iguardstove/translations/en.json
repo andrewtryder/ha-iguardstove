@@ -108,6 +108,11 @@
           "rediscover_devices": "Immediately perform a one-shot device discovery pass to find newly added or reconfigured stoves."
         }
       }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to iGuardFire. Check your network connection.",
+      "invalid_auth": "Invalid credentials. Please check your username and password.",
+      "unknown": "Unexpected error. Check the Home Assistant logs for details."
     }
   },
   "exceptions": {

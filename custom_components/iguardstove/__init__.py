@@ -27,62 +27,72 @@ PLATFORMS: list[Platform] = [
 
 async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) -> bool:
     """Set up iGuardStove from a config entry."""
-    session = async_create_clientsession(hass, headers={"User-Agent": USER_AGENT})
+    session = async_create_clientsession(
+        hass, auto_cleanup=False, headers={"User-Agent": USER_AGENT}
+    )
     client = IGuardStoveClient(
         session,
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
     )
+    setup_complete = False
 
     try:
-        await client.async_login()
-    except InvalidAuth as err:
-        raise ConfigEntryAuthFailed(
-            f"Invalid credentials for account {entry.data[CONF_USERNAME]}"
-        ) from err
-    except CannotConnect as err:
-        raise ConfigEntryNotReady(f"Failed to connect to iGuardFire: {err}") from err
-
-    stored_devices: list[dict[str, Any]] = entry.data.get("devices", [])
-    if stored_devices:
-        device_ids = [d["device_id"] for d in stored_devices]
-    else:
         try:
-            devices = await client.async_get_devices()
-            device_ids = [d["device_id"] for d in devices]
-            if devices:
-                hass.config_entries.async_update_entry(
-                    entry,
-                    data={**dict(entry.data), "devices": devices},
-                )
+            await client.async_login()
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed(
-                f"Invalid credentials discovering devices: {err}"
+                f"Invalid credentials for account {entry.data[CONF_USERNAME]}"
             ) from err
         except CannotConnect as err:
             raise ConfigEntryNotReady(
-                f"Failed to connect discovering devices: {err}"
+                f"Failed to connect to iGuardFire: {err}"
             ) from err
 
-    if not device_ids:
-        _LOGGER.warning(
-            "No iGuardStove devices found for account %s; keeping entry loaded",
-            entry.data[CONF_USERNAME],
+        stored_devices: list[dict[str, Any]] = entry.data.get("devices", [])
+        if stored_devices:
+            device_ids = [d["device_id"] for d in stored_devices]
+        else:
+            try:
+                devices = await client.async_get_devices()
+                device_ids = [d["device_id"] for d in devices]
+                if devices:
+                    hass.config_entries.async_update_entry(
+                        entry,
+                        data={**dict(entry.data), "devices": devices},
+                    )
+            except InvalidAuth as err:
+                raise ConfigEntryAuthFailed(
+                    f"Invalid credentials discovering devices: {err}"
+                ) from err
+            except CannotConnect as err:
+                raise ConfigEntryNotReady(
+                    f"Failed to connect discovering devices: {err}"
+                ) from err
+
+        if not device_ids:
+            _LOGGER.warning(
+                "No iGuardStove devices found for account %s; keeping entry loaded",
+                entry.data[CONF_USERNAME],
+            )
+
+        coordinator = IGuardStoveDataUpdateCoordinator(hass, client, device_ids)
+        coordinator.config_entry = entry
+
+        await coordinator.async_config_entry_first_refresh()
+
+        entry.runtime_data = IGuardStoveData(
+            client=client,
+            coordinator=coordinator,
         )
 
-    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, device_ids)
-    coordinator.config_entry = entry
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    await coordinator.async_config_entry_first_refresh()
-
-    entry.runtime_data = IGuardStoveData(
-        client=client,
-        coordinator=coordinator,
-    )
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    return True
+        setup_complete = True
+        return True
+    finally:
+        if not setup_complete:
+            await client.close()
 
 
 async def async_unload_entry(
@@ -93,6 +103,31 @@ async def async_unload_entry(
     if unload_ok and entry.runtime_data and entry.runtime_data.client:
         await entry.runtime_data.client.close()
     return unload_ok
+
+
+def _prune_device_from_config_entry(
+    hass: HomeAssistant,
+    config_entry: IGuardStoveConfigEntry,
+    device_id: str,
+) -> None:
+    """Remove a device from persisted config-entry data without runtime state."""
+    remaining = [
+        {
+            "device_id": str(d["device_id"]),
+            "device_name": str(d.get("device_name", d["device_id"])),
+        }
+        for d in config_entry.data.get("devices", [])
+        if isinstance(d, dict)
+        and isinstance(d.get("device_id"), str)
+        and d.get("device_id") != device_id
+    ]
+    current = config_entry.data.get("devices", [])
+    if current == remaining:
+        return
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data={**dict(config_entry.data), "devices": remaining},
+    )
 
 
 async def async_remove_config_entry_device(
@@ -114,10 +149,13 @@ async def async_remove_config_entry_device(
         return True
 
     runtime = getattr(config_entry, "runtime_data", None)
-    if runtime is None or runtime.coordinator is None:
-        return True
+    if runtime is not None and runtime.coordinator is not None:
+        return bool(runtime.coordinator.async_prepare_device_removal(device_id))
 
-    return bool(runtime.coordinator.async_prepare_device_removal(device_id))
+    # Entry is unloaded: active/inactive state is unknown. Still prune persisted
+    # device data so a removed stove cannot reappear on the next setup.
+    _prune_device_from_config_entry(hass, config_entry, device_id)
+    return True
 
 
 async def async_migrate_entry(

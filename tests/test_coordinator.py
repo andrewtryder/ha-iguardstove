@@ -524,3 +524,35 @@ async def test_async_prepare_device_removal_cleans_unavailable(
     assert "DEV1" not in coordinator.device_ids
     assert store.clear_device.called
     assert all(d["device_id"] != "DEV1" for d in entry.data["devices"])
+
+
+@pytest.mark.asyncio
+async def test_async_rediscover_now_propagates_invalid_auth(
+    hass: HomeAssistant,
+) -> None:
+    """One-shot rediscovery must raise InvalidAuth for options-flow mapping."""
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(side_effect=InvalidAuth("revoked"))
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    coordinator.config_entry = entry
+
+    with pytest.raises(InvalidAuth, match="revoked"):
+        await coordinator.async_rediscover_now()
+
+
+@pytest.mark.asyncio
+async def test_async_rediscover_now_propagates_cannot_connect(
+    hass: HomeAssistant,
+) -> None:
+    """One-shot rediscovery must raise CannotConnect for options-flow mapping."""
+    client = MagicMock(spec=IGuardStoveClient)
+    client.async_get_devices = AsyncMock(side_effect=CannotConnect("offline"))
+    coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    coordinator.config_entry = entry
+
+    with pytest.raises(CannotConnect, match="offline"):
+        await coordinator.async_rediscover_now()
