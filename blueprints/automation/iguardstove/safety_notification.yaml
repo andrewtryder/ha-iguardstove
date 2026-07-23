@@ -1,0 +1,104 @@
+blueprint:
+  name: iGuardStove - Stove Safety Notification
+  description: >-
+    Send notification alerts (with optional critical sound override) to mobile app devices when iGuardStove safety events occur.
+  domain: automation
+  source_url: https://github.com/andrewtryder/ha-iguardstove/blob/main/blueprints/automation/iguardstove/safety_notification.yaml
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    iguardstove_event:
+      name: iGuardStove Event Entity
+      description: The iGuardStove Activity Event entity to monitor.
+      selector:
+        entity:
+          filter:
+            - domain: event
+              integration: iguardstove
+    notify_device:
+      name: Notification Device
+      description: Mobile app device to receive safety notifications.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    notification_title:
+      name: Notification Title
+      description: Title of the mobile notification.
+      default: "iGuardStove Alert"
+      selector:
+        text: {}
+    is_critical:
+      name: Critical Notification
+      description: Send as a critical notification to override silent/Do Not Disturb mode on supported devices.
+      default: false
+      selector:
+        boolean: {}
+    event_types:
+      name: Safety Event Types
+      description: Select which safety event types trigger notifications.
+      default:
+        - auto_shut_off
+        - emergency_button
+        - temperature_alert
+        - lost_communication
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Automatic Shut Off
+              value: auto_shut_off
+            - label: Emergency Button Pressed
+              value: emergency_button
+            - label: High Temperature Alert
+              value: temperature_alert
+            - label: Lost Communication
+              value: lost_communication
+            - label: Stove Turn On
+              value: stove_on
+            - label: Stove Turn Off
+              value: stove_off
+            - label: Night Lock Activated
+              value: night_lock_on
+            - label: Night Lock Deactivated
+              value: night_lock_off
+            - label: Motion Auto Resumed
+              value: motion_auto_resumed
+            - label: Stove Bypassed
+              value: bypassed
+            - label: No Activity Grace Period
+              value: no_activity_grace_period
+            - label: General Activity Seen
+              value: activity_seen
+
+mode: queued
+max: 10
+
+trigger:
+  - platform: state
+    entity_id: !input iguardstove_event
+    attribute: event_type
+
+condition:
+  - condition: template
+    value_template: >-
+      {{ trigger.to_state is not none and trigger.to_state.attributes.event_type is defined and trigger.to_state.attributes.event_type in (target_event_types if target_event_types is list else [target_event_types]) }}
+
+variables:
+  target_event_types: !input event_types
+  is_critical_var: !input is_critical
+
+action:
+  - action: notify.notify
+    target:
+      device_id: !input notify_device
+    data:
+      title: !input notification_title
+      message: >-
+        iGuardStove Event Detected: {{ trigger.to_state.attributes.event_type | replace('_', ' ') | title }} on {{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}.
+      data: >-
+        {% if is_critical_var %}
+        {"push": {"sound": {"name": "default", "critical": 1, "volume": 1.0}}}
+        {% else %}
+        {}
+        {% endif %}

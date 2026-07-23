@@ -1,0 +1,80 @@
+blueprint:
+  name: iGuardStove - Event Action Runner
+  description: >-
+    Execute custom actions (such as notifications, lights, sirens, TTS, or scripts) when selected iGuardStove safety or operational activity events are detected.
+  domain: automation
+  source_url: https://github.com/andrewtryder/ha-iguardstove/blob/main/blueprints/automation/iguardstove/selected_event_actions.yaml
+  homeassistant:
+    min_version: "2024.1.0"
+  input:
+    iguardstove_event:
+      name: iGuardStove Event Entity
+      description: The iGuardStove Activity Event entity to monitor.
+      selector:
+        entity:
+          filter:
+            - domain: event
+              integration: iguardstove
+    event_types:
+      name: Event Types
+      description: Select which iGuardStove event types will trigger the actions.
+      default:
+        - auto_shut_off
+        - emergency_button
+        - temperature_alert
+        - lost_communication
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Automatic Shut Off
+              value: auto_shut_off
+            - label: Emergency Button Pressed
+              value: emergency_button
+            - label: High Temperature Alert
+              value: temperature_alert
+            - label: Lost Communication
+              value: lost_communication
+            - label: Stove Turn On
+              value: stove_on
+            - label: Stove Turn Off
+              value: stove_off
+            - label: Night Lock Activated
+              value: night_lock_on
+            - label: Night Lock Deactivated
+              value: night_lock_off
+            - label: Motion Auto Resumed
+              value: motion_auto_resumed
+            - label: Stove Bypassed
+              value: bypassed
+            - label: No Activity Grace Period
+              value: no_activity_grace_period
+            - label: General Activity Seen
+              value: activity_seen
+            - label: Unknown Event
+              value: unknown
+    actions:
+      name: Actions
+      description: Actions to run when one of the selected event types occurs.
+      selector:
+        action: {}
+
+mode: queued
+max: 10
+
+trigger:
+  - platform: state
+    entity_id: !input iguardstove_event
+    attribute: event_type
+
+condition:
+  - condition: template
+    value_template: >-
+      {{ trigger.to_state is not none and trigger.to_state.attributes.event_type is defined and trigger.to_state.attributes.event_type in (target_event_types if target_event_types is list else [target_event_types]) }}
+
+variables:
+  target_event_types: !input event_types
+
+action:
+  - choose: []
+    default: !input actions
