@@ -862,3 +862,150 @@ async def test_verification_get_reauthentication_recovery(aresponses) -> None:
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
+
+
+@pytest.mark.asyncio
+async def test_client_http_401_403_raises_invalid_auth(aresponses) -> None:
+    """Test that 401 and 403 HTTP status responses raise InvalidAuth."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(status=401, text="Unauthorized"),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(InvalidAuth, match="Authentication failure"):
+            await client.async_get_devices(retry_login=False)
+
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(status=403, text="Forbidden"),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(InvalidAuth, match="Authentication failure"):
+            await client.async_get_devices(retry_login=False)
+
+
+@pytest.mark.asyncio
+async def test_client_max_html_size_exceeded_raises_cannot_connect(aresponses) -> None:
+    """Test that response exceeding 5MB max HTML size raises CannotConnect."""
+    huge_body = b"A" * (5 * 1024 * 1024 + 100)
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(
+            status=200, body=huge_body, headers={"Content-Type": "text/html"}
+        ),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(CannotConnect, match="exceeds maximum size limit"):
+            await client.async_get_devices(retry_login=False)
+
+
+@pytest.mark.asyncio
+async def test_client_http_500_retry_success(aresponses) -> None:
+    """Test that HTTP 500 status code retries and succeeds on next attempt."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(status=500, text="Server Error"),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(status=200, text=LOGIN_SUCCESS_HTML),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        devices = await client.async_get_devices(retry_login=False)
+        assert len(devices) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_http_500_retry_exhausted(aresponses) -> None:
+    """Test that repeated HTTP 500 status code retries and eventually raises CannotConnect."""
+    for _ in range(3):
+        aresponses.add(
+            PORTAL_HOST,
+            "/",
+            "GET",
+            aresponses.Response(status=500, text="Server Error"),
+        )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(CannotConnect, match="status 500"):
+            await client.async_get_devices(retry_login=False)
+
+
+@pytest.mark.asyncio
+async def test_async_set_lock_state_post_session_expired(aresponses) -> None:
+    """Test session expiration during lock POST triggers re-login and retry."""
+    # 1. GET device page returns locked page for initial form fetch
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+    # 2. POST lock state returns 401 (InvalidAuth)
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(status=401, text="Session expired"),
+    )
+    # 3. async_login GET login page
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "GET",
+        aresponses.Response(text=LOGIN_PAGE_HTML, status=200),
+    )
+    # 4. async_login POST credentials
+    aresponses.add(
+        PORTAL_HOST,
+        LOGIN_PATH_RE,
+        "POST",
+        aresponses.Response(
+            status=302,
+            headers={"Location": "https://manage.iguardfire.com/"},
+        ),
+    )
+    # 5. Redirect target /
+    aresponses.add(
+        PORTAL_HOST,
+        "/",
+        "GET",
+        aresponses.Response(text=LOGIN_SUCCESS_HTML, status=200),
+    )
+    # 6. Retry GET device page returns locked page for second form fetch
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+    # 7. Retry POST lock state returns unlocked page
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=DEVICE_PAGE_UNLOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=False)

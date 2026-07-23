@@ -10,7 +10,7 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.iguardstove.client import CannotConnect, InvalidAuth
-from custom_components.iguardstove.const import DOMAIN
+from custom_components.iguardstove.const import CONF_ALLOW_REMOTE_UNLOCK, DOMAIN
 
 MOCK_DEVICES = [{"device_id": "AABBCCDD1234", "device_name": "Guest House Stove"}]
 
@@ -40,7 +40,9 @@ DEVICE_DATA_LOCKED = {
 
 
 async def _setup_integration(
-    hass: HomeAssistant, device_data: dict | None
+    hass: HomeAssistant,
+    device_data: dict | None,
+    options: dict | None = None,
 ) -> MockConfigEntry:
     """Helper: set up the integration with fixed device data and enable disabled lock entity."""
     entry = MockConfigEntry(
@@ -50,6 +52,7 @@ async def _setup_integration(
             CONF_PASSWORD: "secret",
             "devices": MOCK_DEVICES,
         },
+        options=options or {},
     )
     entry.add_to_hass(hass)
 
@@ -118,9 +121,26 @@ async def test_lock_action_calls_async_set_lock_state(hass: HomeAssistant) -> No
     mock_set_state.assert_called_once_with("AABBCCDD1234", True)
 
 
-async def test_unlock_action_calls_async_set_lock_state(hass: HomeAssistant) -> None:
-    """Test that calling unlock service invokes async_set_lock_state with target_locked=False."""
+async def test_unlock_action_disabled_by_default_raises(hass: HomeAssistant) -> None:
+    """Test calling unlock service raises remote_unlock_disabled when option is False."""
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
+
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await hass.services.async_call(
+            "lock",
+            "unlock",
+            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            blocking=True,
+        )
+
+    assert exc_info.value.translation_key == "remote_unlock_disabled"
+
+
+async def test_unlock_action_allowed_when_option_enabled(hass: HomeAssistant) -> None:
+    """Test calling unlock service succeeds when CONF_ALLOW_REMOTE_UNLOCK is True."""
+    await _setup_integration(
+        hass, DEVICE_DATA_LOCKED, options={CONF_ALLOW_REMOTE_UNLOCK: True}
+    )
 
     with patch(
         "custom_components.iguardstove.client.IGuardStoveClient.async_set_lock_state",
@@ -138,26 +158,18 @@ async def test_unlock_action_calls_async_set_lock_state(hass: HomeAssistant) -> 
     mock_set_state.assert_called_once_with("AABBCCDD1234", False)
 
 
-async def test_lock_entity_missing_data(hass: HomeAssistant) -> None:
-    """Test lock entity reports unknown state when device data is missing or incomplete."""
-    await _setup_integration(hass, None)
-    state = hass.states.get("lock.iguardstove_stove_lock")
-    assert state is not None
-    assert state.state == "unknown"
-
-
-async def test_lock_entity_missing_is_locked_key(hass: HomeAssistant) -> None:
-    """Test lock entity returns unknown state when is_locked key is missing."""
-    device_data_no_lock = {
+async def test_lock_entity_unavailable_when_indeterminate(hass: HomeAssistant) -> None:
+    """Test lock entity becomes unavailable when lock state is None (indeterminate)."""
+    device_data_indeterminate = {
         "device_id": "AABBCCDD1234",
         "device_name": "Guest House Stove",
-        "status": "Stove Off",
-        "status_raw": "iGuardStove is off",
+        "status": "Lost Communication",
+        "is_locked": None,
     }
-    await _setup_integration(hass, device_data_no_lock)
+    await _setup_integration(hass, device_data_indeterminate)
     state = hass.states.get("lock.guest_house_stove_stove_lock")
     assert state is not None
-    assert state.state == "unknown"
+    assert state.state == "unavailable"
 
 
 async def test_lock_action_cannot_connect_raises_homeassistant_error(
@@ -209,8 +221,10 @@ async def test_lock_action_invalid_auth_raises_homeassistant_error(
 async def test_unlock_action_cannot_connect_raises_homeassistant_error(
     hass: HomeAssistant,
 ) -> None:
-    """Test that CannotConnect during unlock action raises HomeAssistantError."""
-    await _setup_integration(hass, DEVICE_DATA_LOCKED)
+    """Test that CannotConnect during unlock action raises HomeAssistantError when allowed."""
+    await _setup_integration(
+        hass, DEVICE_DATA_LOCKED, options={CONF_ALLOW_REMOTE_UNLOCK: True}
+    )
 
     with (
         patch(
@@ -232,8 +246,10 @@ async def test_unlock_action_cannot_connect_raises_homeassistant_error(
 async def test_unlock_action_invalid_auth_raises_homeassistant_error(
     hass: HomeAssistant,
 ) -> None:
-    """Test that InvalidAuth during unlock action raises HomeAssistantError."""
-    await _setup_integration(hass, DEVICE_DATA_LOCKED)
+    """Test that InvalidAuth during unlock action raises HomeAssistantError when allowed."""
+    await _setup_integration(
+        hass, DEVICE_DATA_LOCKED, options={CONF_ALLOW_REMOTE_UNLOCK: True}
+    )
 
     with (
         patch(

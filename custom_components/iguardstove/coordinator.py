@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -28,6 +29,8 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(seconds=60)
 # Perform dynamic device discovery pass every 6 hours
 DISCOVERY_INTERVAL = timedelta(hours=6)
+MIN_DISCOVERY_BACKOFF = timedelta(minutes=5)
+MAX_DISCOVERY_BACKOFF = timedelta(hours=6)
 
 
 @dataclass
@@ -57,7 +60,9 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self.device_ids = list(device_ids)
         self._unavailable_devices: set[str] = set()
         self._pending_stale_counts: dict[str, int] = {}
-        self._last_discovery_time: datetime | None = None
+        self._last_discovery_attempt: datetime | None = None
+        self._last_successful_discovery: datetime | None = None
+        self._discovery_fail_count: int = 0
         super().__init__(
             hass,
             _LOGGER,
@@ -94,6 +99,7 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 len(stale_device_ids),
                 stale_device_ids,
             )
+            dev_reg = dr.async_get(self.hass)
             for did in stale_device_ids:
                 self.device_ids.remove(did)
                 self._pending_stale_counts.pop(did, None)
@@ -103,8 +109,28 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 if self.data and did in self.data.errors:
                     self.data.errors.pop(did, None)
 
-    async def _async_discover_devices(self) -> bool:
-        """Perform dynamic device discovery pass and reconcile registered devices."""
+                device_entry = dev_reg.async_get_device(identifiers={(DOMAIN, did)})
+                if device_entry:
+                    dev_reg.async_remove_device(device_entry.id)
+
+    def _should_attempt_discovery(self, now: datetime) -> bool:
+        """Check if dynamic discovery should run based on schedule or exponential backoff."""
+        if (
+            self._last_successful_discovery is None
+            or self._last_discovery_attempt is None
+        ):
+            return True
+
+        if self._discovery_fail_count == 0:
+            return (now - self._last_successful_discovery) >= DISCOVERY_INTERVAL
+
+        backoff_minutes = min(360, 5 * (2 ** (self._discovery_fail_count - 1)))
+        backoff_delay = timedelta(minutes=backoff_minutes)
+        return (now - self._last_discovery_attempt) >= backoff_delay
+
+    async def _async_discover_devices(self, now: datetime) -> bool:
+        """Perform dynamic device discovery pass with controlled backoff and exception scoping."""
+        self._last_discovery_attempt = now
         try:
             discovered = await self.client.async_get_devices()
             discovered_ids = {d["device_id"] for d in discovered}
@@ -129,27 +155,28 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                     )
 
             self._reconcile_stale_devices(discovered_ids)
+            self._discovery_fail_count = 0
+            self._last_successful_discovery = now
             return True
         except InvalidAuth as err:
+            self._discovery_fail_count += 1
             raise ConfigEntryAuthFailed(
                 f"Authentication error during discovery pass: {err}"
             ) from err
-        except DashboardParseError as err:
-            _LOGGER.warning("Dashboard parse error during discovery pass: %s", err)
-            return False
-        except Exception as err:
-            _LOGGER.warning("Could not perform dynamic device discovery pass: %s", err)
+        except (CannotConnect, DashboardParseError) as err:
+            self._discovery_fail_count += 1
+            _LOGGER.warning(
+                "Discovery pass failed (fail count %d): %s",
+                self._discovery_fail_count,
+                err,
+            )
             return False
 
     async def _async_update_data(self) -> CoordinatorData:
         """Fetch data for all registered devices with error isolation and discovery."""
         now = dt_util.now()
-        if (
-            self._last_discovery_time is None
-            or now - self._last_discovery_time >= DISCOVERY_INTERVAL
-        ):
-            if await self._async_discover_devices():
-                self._last_discovery_time = now
+        if self._should_attempt_discovery(now):
+            await self._async_discover_devices(now)
 
         event_date = now.date()
         tzinfo = now.tzinfo

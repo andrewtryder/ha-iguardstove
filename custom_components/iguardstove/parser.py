@@ -9,6 +9,7 @@ from datetime import date, datetime, tzinfo
 from bs4 import BeautifulSoup, Tag
 
 from .const import (
+    BASE_URL,
     SEL_INFO_BLOCK,
     SEL_INFO_TITLE,
     SEL_INFO_VALUE,
@@ -361,26 +362,43 @@ def _parse_lock_icon_state(soup: BeautifulSoup) -> bool | None:
     return None
 
 
+EXPLICIT_LOCKED_PATTERNS = (
+    "locked out for the night",
+    "locked out",
+    "manually locked",
+    "caregiver locked",
+    "night lock",
+    "locked",
+)
+
+EXPLICIT_UNLOCKED_PATTERNS = (
+    "stove is off",
+    "stove is on",
+    "stove has been shut off",
+    "stove off",
+    "stove on",
+    "stove shut off",
+    "unlocked",
+    "countdown",
+    "manual timer",
+)
+
+
 def _parse_lock_text_state(
     soup: BeautifulSoup, status: str | None = None
 ) -> bool | None:
-    """Parse lock state from status text element or status string."""
+    """Parse lock state from status text element or status string safely."""
     status_el = soup.find(class_=SEL_STOVE_STATUS_TEXT)
     raw_status = status_el.get_text(strip=True) if status_el else status
     if not raw_status:
         return None
 
     lower = raw_status.lower()
-    if "locked" in lower:
+    if any(pat in lower for pat in EXPLICIT_LOCKED_PATTERNS):
         return True
 
-    norm = normalize_status(raw_status)
-    if norm and norm.lower() != lower and "locked" not in norm.lower():
+    if any(pat in lower for pat in EXPLICIT_UNLOCKED_PATTERNS):
         return False
-
-    for pattern in STATUS_MAP:
-        if pattern in lower:
-            return "locked" in pattern
 
     return None
 
@@ -388,22 +406,30 @@ def _parse_lock_text_state(
 def parse_lock_state(
     html_or_soup: str | BeautifulSoup, status: str | None = None
 ) -> bool | None:
-    """Parse lock state (True = locked, False = unlocked, None = unknown) from device HTML or soup."""
+    """Parse lock state (True = locked, False = unlocked, None = unknown/conflict) from device HTML or soup."""
     soup = (
         html_or_soup
         if isinstance(html_or_soup, BeautifulSoup)
         else BeautifulSoup(html_or_soup, "html.parser")
     )
 
-    state = _parse_lock_form_state(soup)
-    if state is not None:
-        return state
+    form_state = _parse_lock_form_state(soup)
+    icon_state = _parse_lock_icon_state(soup)
+    text_state = _parse_lock_text_state(soup, status)
 
-    state = _parse_lock_icon_state(soup)
-    if state is not None:
-        return state
+    evidence = {s for s in (form_state, icon_state, text_state) if s is not None}
+    if len(evidence) == 1:
+        return next(iter(evidence))
 
-    return _parse_lock_text_state(soup, status)
+    if len(evidence) > 1:
+        _LOGGER.warning(
+            "Conflicting lock evidence detected (form=%s, icon=%s, text=%s)",
+            form_state,
+            icon_state,
+            text_state,
+        )
+
+    return None
 
 
 def parse_device_page(
@@ -524,8 +550,18 @@ def parse_lock_form(html: str, device_id: str) -> LockFormData:
 
     is_currently_locked = button_name == "unlock"
     button_value = str(button.get("value", device_id))
+
     action = form.get("action")
     action_str = str(action) if action else None
+    if action_str and (
+        action_str.startswith("http://") or action_str.startswith("https://")
+    ):
+        import yarl
+
+        target = yarl.URL(action_str)
+        expected = yarl.URL(BASE_URL)
+        if target.host != expected.host or target.scheme != "https":
+            raise ValueError(f"Suspicious form action origin: {action_str}")
 
     return LockFormData(
         csrf_token=csrf_token,

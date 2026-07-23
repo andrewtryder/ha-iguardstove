@@ -1,6 +1,6 @@
 """Tests for iGuardStove config flow."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -233,8 +233,8 @@ async def test_flow_duplicate_entry_aborted(hass: HomeAssistant) -> None:
     assert result2["reason"] == "already_configured"
 
 
-async def test_validate_input_session_detach(hass: HomeAssistant) -> None:
-    """Test that validate_input uses auto_cleanup=False and detaches session in finally block."""
+async def test_validate_input_session_close(hass: HomeAssistant) -> None:
+    """Test that validate_input uses auto_cleanup=False and closes session in finally block."""
     from custom_components.iguardstove.config_flow import validate_input
 
     with (
@@ -251,6 +251,8 @@ async def test_validate_input_session_detach(hass: HomeAssistant) -> None:
         ) as mock_create_session,
     ):
         mock_session = MagicMock()
+        mock_session.closed = False
+        mock_session.close = AsyncMock()
         mock_create_session.return_value = mock_session
 
         info = await validate_input(
@@ -260,7 +262,7 @@ async def test_validate_input_session_detach(hass: HomeAssistant) -> None:
 
         mock_create_session.assert_called_once()
         assert mock_create_session.call_args.kwargs.get("auto_cleanup") is False
-        mock_session.detach.assert_called_once()
+        mock_session.close.assert_called_once()
 
 
 async def test_flow_reauth_success(hass: HomeAssistant) -> None:
@@ -513,3 +515,29 @@ async def test_flow_reauth_unknown_exception(hass: HomeAssistant) -> None:
 
     assert result2["type"] is FlowResultType.FORM
     assert result2["errors"] == {"base": "unknown"}
+
+
+async def test_options_flow(hass: HomeAssistant) -> None:
+    """Test updating integration options via options flow."""
+    from custom_components.iguardstove.const import CONF_ALLOW_REMOTE_UNLOCK
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_ALLOW_REMOTE_UNLOCK: True},
+    )
+    assert result2["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {CONF_ALLOW_REMOTE_UNLOCK: True}

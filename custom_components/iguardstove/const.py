@@ -1,8 +1,10 @@
 """Constants for the iGuardStove integration."""
 
 DOMAIN = "iguardstove"
+CONF_ALLOW_REMOTE_UNLOCK = "allow_remote_unlock"
 
 USER_AGENT = (
+    "HomeAssistant-iGuardStove/1.5.0 "
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"

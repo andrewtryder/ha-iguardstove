@@ -1,13 +1,14 @@
 """Tests for iGuardStove diagnostics."""
 
 import hashlib
+import json
 from unittest.mock import patch
 
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.iguardstove.const import DOMAIN
+from custom_components.iguardstove.const import BASE_URL, DOMAIN
 from custom_components.iguardstove.diagnostics import async_get_config_entry_diagnostics
 
 MOCK_DEVICES = [{"device_id": "AABBCCDD1234", "device_name": "Guest House Stove"}]
@@ -15,7 +16,7 @@ MOCK_DEVICE_DATA = {
     "device_id": "AABBCCDD1234",
     "device_name": "Guest House Stove",
     "status": "Stove Off",
-    "status_raw": "iGuardStove is off",
+    "status_raw": "iGuardStove is off at https://manage.iguardfire.com",
     "is_locked": False,
     "last_check_in": "20 minutes ago",
     "temperature": 72.0,
@@ -25,9 +26,10 @@ MOCK_DEVICE_DATA = {
 
 
 async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
-    """Test that diagnostics output redacts sensitive username, password, and hardware/room identifiers."""
+    """Test that diagnostics output redacts sensitive username, password, URLs, and hardware/room identifiers."""
     entry = MockConfigEntry(
         domain=DOMAIN,
+        title="iGuardStove (sensitive_user@example.com)",
         data={
             CONF_USERNAME: "sensitive_user@example.com",
             CONF_PASSWORD: "super_secret_password",
@@ -70,3 +72,27 @@ async def test_diagnostics_redaction(hass: HomeAssistant) -> None:
     assert dev_data["device_name"] == f"iGuardStove {expected_anon_id}"
     assert dev_data["status"] == "Stove Off"
     assert dev_data["temperature"] == 72.0
+
+    # Recursive serialization assertion
+    diag_str = json.dumps(diag)
+    assert "sensitive_user@example.com" not in diag_str
+    assert "super_secret_password" not in diag_str
+    assert "AABBCCDD1234" not in diag_str
+    assert "Guest House Stove" not in diag_str
+    assert BASE_URL not in diag_str
+
+
+def test_sanitize_nested_helper() -> None:
+    """Test _sanitize_nested helper with lists, dicts, and non-string primitives."""
+    from custom_components.iguardstove.diagnostics import _sanitize_nested
+
+    raw_data = {
+        "username": "secret_user",
+        "nested_list": ["secret_user", 123, True, None],
+        "other": "hello secret_user world",
+    }
+    sanitized = _sanitize_nested(raw_data, ("secret_user",))
+    assert sanitized["username"] == "**REDACTED**"
+    assert sanitized["nested_list"][1] == 123
+    assert sanitized["nested_list"][2] is True
+    assert sanitized["nested_list"][3] is None

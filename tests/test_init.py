@@ -1,6 +1,6 @@
 """Tests for the iGuardStove integration setup and teardown lifecycle."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -71,10 +71,22 @@ async def test_setup_and_unload_entry(hass: HomeAssistant) -> None:
     coordinator = entry.runtime_data.coordinator
     assert coordinator is not None
 
-    # Unload
-    await hass.config_entries.async_unload(entry.entry_id)
-    await hass.async_block_till_done()
-    assert entry.state is ConfigEntryState.NOT_LOADED
+    client = entry.runtime_data.client
+    with patch.object(client, "close", new_callable=AsyncMock) as mock_close:
+        # Unload
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.state is ConfigEntryState.NOT_LOADED
+        mock_close.assert_called_once()
+
+
+async def test_remove_config_entry_device(hass: HomeAssistant) -> None:
+    """Test async_remove_config_entry_device returns True."""
+    from custom_components.iguardstove import async_remove_config_entry_device
+
+    entry = _make_entry()
+    entry.add_to_hass(hass)
+    assert await async_remove_config_entry_device(hass, entry, None) is True
 
 
 async def test_setup_entry_login_invalid_auth(hass: HomeAssistant) -> None:
@@ -172,6 +184,10 @@ async def test_setup_entry_coordinator_invalid_auth(hass: HomeAssistant) -> None
             return_value=True,
         ),
         patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
+        ),
+        patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
             side_effect=InvalidAuth("Session revoked"),
         ),
@@ -191,6 +207,10 @@ async def test_setup_entry_coordinator_cannot_connect(hass: HomeAssistant) -> No
         patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_login",
             return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=MOCK_DEVICES,
         ),
         patch(
             "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",

@@ -199,7 +199,7 @@ async def test_coordinator_surfaces_unexpected_exception(hass: HomeAssistant) ->
 async def test_coordinator_failed_discovery_retries_on_next_poll(
     hass: HomeAssistant,
 ) -> None:
-    """Test that a failed discovery pass does not update _last_discovery_time and retries on the next poll."""
+    """Test that a failed discovery pass tracks fail count and retries after backoff."""
     client = MagicMock(spec=IGuardStoveClient)
     client.async_get_devices = AsyncMock(
         side_effect=[CannotConnect("Dashboard unavailable"), [{"device_id": "DEV1"}]]
@@ -210,20 +210,25 @@ async def test_coordinator_failed_discovery_retries_on_next_poll(
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1"])
 
-    # First update: discovery fails, _last_discovery_time remains None
+    # First update: discovery fails, _last_successful_discovery remains None
     await coordinator._async_update_data()
     assert client.async_get_devices.call_count == 1
-    assert coordinator._last_discovery_time is None
+    assert coordinator._last_successful_discovery is None
+    assert coordinator._discovery_fail_count == 1
 
-    # Second update (60s poll): retries discovery and succeeds!
-    await coordinator._async_update_data()
-    assert client.async_get_devices.call_count == 2
-    assert coordinator._last_discovery_time is not None
+    # Second update (e.g. after backoff window): retries discovery and succeeds!
+    with patch.object(coordinator, "_should_attempt_discovery", return_value=True):
+        await coordinator._async_update_data()
+        assert client.async_get_devices.call_count == 2
+        assert coordinator._last_successful_discovery is not None
+        assert coordinator._discovery_fail_count == 0
 
 
 @pytest.mark.asyncio
 async def test_coordinator_stale_device_reconciliation(hass: HomeAssistant) -> None:
     """Test that devices removed from portal dashboard are reconciled after repeated confirmation."""
+    from homeassistant.util import dt as dt_util
+
     client = MagicMock(spec=IGuardStoveClient)
     # Dashboard now only returns DEV1 (DEV2 was removed from account)
     client.async_get_devices = AsyncMock(return_value=[{"device_id": "DEV1"}])
@@ -243,12 +248,13 @@ async def test_coordinator_stale_device_reconciliation(hass: HomeAssistant) -> N
         errors={},
     )
 
+    now = dt_util.now()
     # Pass 1: DEV2 missing, count becomes 1, DEV2 retained for safety
-    await coordinator._async_discover_devices()
+    await coordinator._async_discover_devices(now)
     assert "DEV2" in coordinator.device_ids
 
     # Pass 2: DEV2 missing again, confirmed removed
-    await coordinator._async_discover_devices()
+    await coordinator._async_discover_devices(now)
     assert "DEV2" not in coordinator.device_ids
     assert coordinator.device_ids == ["DEV1"]
 
@@ -256,10 +262,13 @@ async def test_coordinator_stale_device_reconciliation(hass: HomeAssistant) -> N
 @pytest.mark.asyncio
 async def test_coordinator_empty_discovery_retains_devices(hass: HomeAssistant) -> None:
     """Test that a single empty discovery pass retains existing registered devices."""
+    from homeassistant.util import dt as dt_util
+
     client = MagicMock(spec=IGuardStoveClient)
     client.async_get_devices = AsyncMock(return_value=[])
 
     coordinator = IGuardStoveDataUpdateCoordinator(hass, client, ["DEV1", "DEV2"])
-    success = await coordinator._async_discover_devices()
+    now = dt_util.now()
+    success = await coordinator._async_discover_devices(now)
     assert success is True
     assert coordinator.device_ids == ["DEV1", "DEV2"]
