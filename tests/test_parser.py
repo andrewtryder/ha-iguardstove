@@ -1,6 +1,6 @@
 """Tests for pure HTML parser functions."""
 
-from datetime import date, timezone
+from datetime import UTC, date
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -455,7 +455,7 @@ def test_parse_event_table_reusability() -> None:
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
     assert table is not None
-    events = parse_event_table(table, date(2026, 7, 22), tzinfo=timezone.utc)
+    events = parse_event_table(table, date(2026, 7, 22), tzinfo=UTC)
     assert len(events) == 1
     assert events[0].event_type == StoveEventType.STOVE_ON
 
@@ -629,7 +629,7 @@ def test_parse_lock_state_all_known_statuses() -> None:
         "manual timer",
     )
 
-    for raw, _label in STATUS_MAP.items():
+    for raw in STATUS_MAP:
         html = f"""
         <!doctype html>
         <html>

@@ -18,7 +18,12 @@ from .client import (
     IGuardStoveException,
     InvalidAuth,
 )
-from .const import DOMAIN
+from .const import (
+    CONF_REDISCOVER_DEVICES,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
 from .exceptions import DashboardParseError
 from .models import CoordinatorData
 from .types import DeviceData
@@ -175,7 +180,18 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
     async def _async_update_data(self) -> CoordinatorData:
         """Fetch data for all registered devices with error isolation and discovery."""
         now = dt_util.now()
-        if self._should_attempt_discovery(now):
+
+        if hasattr(self, "config_entry") and self.config_entry:
+            options = self.config_entry.options
+            scan_sec = options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+            if self.update_interval != timedelta(seconds=scan_sec):
+                self.update_interval = timedelta(seconds=scan_sec)
+
+            if options.get(
+                CONF_REDISCOVER_DEVICES, False
+            ) or self._should_attempt_discovery(now):
+                await self._async_discover_devices(now)
+        elif self._should_attempt_discovery(now):
             await self._async_discover_devices(now)
 
         event_date = now.date()

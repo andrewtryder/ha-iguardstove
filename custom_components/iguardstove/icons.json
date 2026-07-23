@@ -1,0 +1,20 @@
+{
+  "entity": {
+    "sensor": {
+      "status": {
+        "default": "mdi:stove"
+      },
+      "last_check_in": {
+        "default": "mdi:clock-check-outline"
+      },
+      "fires_prevented": {
+        "default": "mdi:fire-alert"
+      }
+    },
+    "lock": {
+      "stove_lock": {
+        "default": "mdi:stove"
+      }
+    }
+  }
+}

@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import CONF_ENABLE_ACTIVITY_EVENTS, DOMAIN
 from .coordinator import (
     IGuardStoveConfigEntry,
     IGuardStoveDataUpdateCoordinator,
@@ -109,7 +109,6 @@ async def async_setup_entry(
 
     @callback
     def _async_add_new_devices(new_device_ids: list[str]) -> None:
-
         new_entities: list[IGuardStoveActivityEventEntity] = []
         for device_id in new_device_ids:
             if device_id not in known_devices:
@@ -137,7 +136,6 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
     """Event entity for tracking iGuardStove portal activity events."""
 
     _attr_translation_key = "activity"
-    _attr_event_types = [e.value for e in StoveEventType]
 
     def __init__(
         self,
@@ -147,6 +145,7 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
     ) -> None:
         """Initialize the event entity."""
         super().__init__(coordinator, device_id)
+        self._attr_event_types = [e.value for e in StoveEventType]
         self._store_manager = store_manager
         self._attr_unique_id = f"{device_id}_activity"
         self._seen_fingerprints: set[str] = store_manager.get_seen(device_id)
@@ -208,12 +207,22 @@ class IGuardStoveActivityEventEntity(IGuardStoveEntity, EventEntity):
                 )
             )
 
+            enable_events = True
+            if (
+                hasattr(self.coordinator, "config_entry")
+                and self.coordinator.config_entry
+            ):
+                enable_events = self.coordinator.config_entry.options.get(
+                    CONF_ENABLE_ACTIVITY_EVENTS, True
+                )
+
             for event in new_events:
-                event_data = {
-                    "occurred_at": event.occurred_at.isoformat(),
-                    "raw_label": event.raw_label,
-                }
-                self._trigger_event(event.event_type.value, event_data)
+                if enable_events:
+                    event_data = {
+                        "occurred_at": event.occurred_at.isoformat(),
+                        "raw_label": event.raw_label,
+                    }
+                    self._trigger_event(event.event_type.value, event_data)
 
             self._prune_fingerprints()
             self._store_manager.update_seen(self.device_id, self._seen_fingerprints)

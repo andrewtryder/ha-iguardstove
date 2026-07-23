@@ -41,7 +41,6 @@ async def async_setup_entry(
 
     @callback
     def _async_add_new_devices(new_device_ids: list[str]) -> None:
-
         new_entities: list[LockEntity] = []
         for device_id in new_device_ids:
             if device_id not in known_devices:
@@ -71,7 +70,6 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
     explicit user opt-in to enable.
     """
 
-    _attr_icon = "mdi:stove"
     _attr_translation_key = "stove_lock"
     _attr_entity_registry_enabled_default = False
 

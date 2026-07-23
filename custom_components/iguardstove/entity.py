@@ -45,8 +45,12 @@ class IGuardStoveEntity(CoordinatorEntity[IGuardStoveDataUpdateCoordinator]):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device registry information for this stove."""
-        data = self._device_data or {}
-        device_name = data.get("device_name", "iGuardStove")
+        data = self._device_data
+        device_name = (
+            data.get("device_name", "iGuardStove")
+            if data is not None
+            else "iGuardStove"
+        )
         return DeviceInfo(
             identifiers={(DOMAIN, self.device_id)},
             name=device_name,

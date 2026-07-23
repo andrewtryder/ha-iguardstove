@@ -519,7 +519,12 @@ async def test_flow_reauth_unknown_exception(hass: HomeAssistant) -> None:
 
 async def test_options_flow(hass: HomeAssistant) -> None:
     """Test updating integration options via options flow."""
-    from custom_components.iguardstove.const import CONF_ALLOW_REMOTE_UNLOCK
+    from custom_components.iguardstove.const import (
+        CONF_ALLOW_REMOTE_UNLOCK,
+        CONF_ENABLE_ACTIVITY_EVENTS,
+        CONF_REDISCOVER_DEVICES,
+        CONF_SCAN_INTERVAL,
+    )
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -537,7 +542,199 @@ async def test_options_flow(hass: HomeAssistant) -> None:
 
     result2 = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input={CONF_ALLOW_REMOTE_UNLOCK: True},
+        user_input={
+            CONF_ALLOW_REMOTE_UNLOCK: True,
+            CONF_SCAN_INTERVAL: 120,
+            CONF_ENABLE_ACTIVITY_EVENTS: False,
+            CONF_REDISCOVER_DEVICES: True,
+        },
     )
     assert result2["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {CONF_ALLOW_REMOTE_UNLOCK: True}
+    assert entry.options == {
+        CONF_ALLOW_REMOTE_UNLOCK: True,
+        CONF_SCAN_INTERVAL: 120,
+        CONF_ENABLE_ACTIVITY_EVENTS: False,
+        CONF_REDISCOVER_DEVICES: True,
+    }
+
+
+async def test_flow_reconfigure_success(hass: HomeAssistant) -> None:
+    """Test successful user-initiated reconfigure flow."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        return_value={
+            "title": "iGuardStove (user@example.com)",
+            "device_ids": ["AABBCCDD1234"],
+            "devices": MOCK_DEVICES,
+        },
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "new_password",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.ABORT
+    assert result2["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_PASSWORD] == "new_password"
+
+
+async def test_flow_reconfigure_account_mismatch(hass: HomeAssistant) -> None:
+    """Test reconfiguring to an already configured existing account aborts."""
+    entry1 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user1@example.com",
+        data={
+            CONF_USERNAME: "user1@example.com",
+            CONF_PASSWORD: "password1",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry1.add_to_hass(hass)
+
+    entry2 = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user2@example.com",
+        data={
+            CONF_USERNAME: "user2@example.com",
+            CONF_PASSWORD: "password2",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry2.add_to_hass(hass)
+
+    result = await entry2.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_USERNAME: "user1@example.com",
+            CONF_PASSWORD: "password1",
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.ABORT
+    assert result2["reason"] == "already_configured"
+
+
+async def test_flow_reconfigure_invalid_auth(hass: HomeAssistant) -> None:
+    """Test reconfigure flow displays error on invalid auth."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=InvalidAuth("Bad password"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "wrong_password",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "invalid_auth"}
+
+
+async def test_flow_reconfigure_cannot_connect(hass: HomeAssistant) -> None:
+    """Test reconfigure flow displays error on connection failure."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=CannotConnect("Offline"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "new_password",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "cannot_connect"}
+
+
+async def test_flow_reconfigure_unknown_exception(hass: HomeAssistant) -> None:
+    """Test reconfigure flow displays error on unexpected exception."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old_password",
+            "devices": MOCK_DEVICES,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    with patch(
+        "custom_components.iguardstove.config_flow.validate_input",
+        side_effect=RuntimeError("Unexpected error"),
+    ):
+        result2 = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "new_password",
+            },
+        )
+        await hass.async_block_till_done()
+
+    assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] == {"base": "unknown"}

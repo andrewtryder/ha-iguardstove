@@ -202,9 +202,9 @@ class IGuardStoveClient:
 
                         html = await self._read_response_html(resp, max_html_size, url)
                         return resp.status, html, resp.url
-            except InvalidAuth, CannotConnect:
+            except (InvalidAuth, CannotConnect):
                 raise
-            except asyncio.TimeoutError as ex:
+            except TimeoutError as ex:
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(0.5 * (2**attempt))
                     continue
@@ -454,7 +454,7 @@ class IGuardStoveClient:
             post_soup = BeautifulSoup(post_html, "html.parser")
             validate_device_page_invariants(post_soup, device_id)
             final_locked = parse_lock_state(post_soup)
-        except DevicePageParseError, InvalidAuth:
+        except (DevicePageParseError, InvalidAuth):
             final_locked = None
 
         if final_locked != target_locked:

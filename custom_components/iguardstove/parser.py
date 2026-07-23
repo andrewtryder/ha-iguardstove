@@ -119,7 +119,7 @@ def parse_login_csrf(html: str) -> str | None:
     soup = BeautifulSoup(html, "html.parser")
     csrf_input = soup.find("input", {"name": "csrfmiddlewaretoken"})
     if csrf_input and isinstance(csrf_input.get("value"), str):
-        return csrf_input["value"]
+        return str(csrf_input["value"])
     return None
 
 
@@ -128,7 +128,7 @@ def parse_login_errors(html: str) -> str | None:
     soup = BeautifulSoup(html, "html.parser")
     err_el = soup.find(class_="errorlist") or soup.find(class_="alert-danger")
     if err_el:
-        return err_el.get_text(strip=True)
+        return str(err_el.get_text(strip=True))
     return None
 
 
@@ -346,8 +346,12 @@ def _parse_lock_form_state(soup: BeautifulSoup) -> bool | None:
                 break
 
     button = form.find("button") if form else None
-    if button and button.get("name") in ("lock", "unlock"):
-        return button.get("name") == "unlock"
+    if (
+        button
+        and isinstance(button.get("name"), str)
+        and button.get("name") in ("lock", "unlock")
+    ):
+        return bool(button.get("name") == "unlock")
     return None
 
 
@@ -441,11 +445,9 @@ def parse_device_page(
     """Parse the device detail page HTML into a DeviceData dict."""
     soup = BeautifulSoup(html, "html.parser")
     validate_device_page_invariants(soup, device_id)
-    data: DeviceData = {"device_id": device_id}
-
-    # Title / name
     title_el = soup.find(class_=SEL_STOVE_TITLE)
-    data["device_name"] = title_el.get_text(strip=True) if title_el else "iGuardStove"
+    device_name = title_el.get_text(strip=True) if title_el else "iGuardStove"
+    data: DeviceData = {"device_id": device_id, "device_name": device_name}
 
     # Status
     status_el = soup.find(class_=SEL_STOVE_STATUS_TEXT)

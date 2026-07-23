@@ -966,3 +966,71 @@ async def test_prune_fingerprints_handles_naive_timestamps_and_non_strings(
         assert bad_format_fp in entity._seen_fingerprints
         assert old_naive_fp not in entity._seen_fingerprints
         assert non_string_val not in entity._seen_fingerprints
+
+
+@pytest.mark.asyncio
+async def test_event_suppression_when_disabled_in_options(hass: HomeAssistant) -> None:
+    """Test that event triggers are suppressed when activity event collection option is disabled."""
+    from custom_components.iguardstove.const import CONF_ENABLE_ACTIVITY_EVENTS
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "username": "user@example.com",
+            "password": "secret",
+            "devices": [{"device_id": "DEV1", "device_name": "Stove 1"}],
+        },
+        options={
+            CONF_ENABLE_ACTIVITY_EVENTS: False,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            return_value=[{"device_id": "DEV1", "device_name": "Stove 1"}],
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_device_data",
+            return_value={
+                "device_id": "DEV1",
+                "device_name": "Stove 1",
+                "status": "Stove Off",
+                "today_events": (),
+            },
+        ),
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity = hass.data["entity_components"]["event"].get_entity(
+            "event.stove_1_activity"
+        )
+        assert entity is not None
+
+        mock_trigger = MagicMock()
+        entity._trigger_event = mock_trigger
+
+        now = dt_util.now()
+        new_event = StoveEvent(
+            occurred_at=now,
+            event_type=StoveEventType.STOVE_ON,
+            raw_label="Stove Turned On",
+        )
+
+        coordinator = entry.runtime_data.coordinator
+        coordinator.data.devices["DEV1"] = {
+            "device_id": "DEV1",
+            "device_name": "Stove 1",
+            "status": "Stove On",
+            "today_events": (new_event,),
+        }
+        entity._handle_coordinator_update()
+
+        # Event trigger suppressed because option is False
+        mock_trigger.assert_not_called()

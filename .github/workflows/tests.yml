@@ -44,3 +44,6 @@ jobs:
 
       - name: Ruff format
         run: ruff format --check .
+
+      - name: Run mypy strict type check
+        run: mypy custom_components tests
