@@ -19,7 +19,7 @@ from .const import (
     SEL_STOVE_TITLE,
     STATUS_MAP,
 )
-from .exceptions import EventParseError
+from .exceptions import DevicePageParseError, EventParseError, InvalidAuth
 from .models import StoveEvent, StoveEventType
 from .types import DeviceData, DeviceSummary
 
@@ -268,6 +268,109 @@ def parse_today_events(
     return parse_event_table(table, event_date, tzinfo)
 
 
+def validate_device_page_invariants(soup: BeautifulSoup, device_id: str) -> None:
+    """Validate core iGuardStove device page structure invariants."""
+    # 1. Check for auth/login pages
+    if (
+        soup.find("input", {"type": "password"})
+        or soup.find("input", {"name": ["login", "username"]})
+        or soup.find(class_="errorlist")
+        or soup.find(class_="alert-danger")
+        or soup.find("form", action=re.compile(r"/account/login/?", re.I))
+    ):
+        raise InvalidAuth(
+            f"Auth or login page returned instead of device page for {device_id}"
+        )
+
+    # 2. Check for core device detail page invariants
+    has_title = soup.find(class_=SEL_STOVE_TITLE) is not None
+    has_status = soup.find(class_=SEL_STOVE_STATUS_TEXT) is not None
+    has_date = soup.find(class_=SEL_STOVE_DATE) is not None
+    has_lock_form = soup.find("form", {"id": ["unlock", "lock"]}) is not None or any(
+        f.find("button", {"name": ["lock", "unlock"]}) for f in soup.find_all("form")
+    )
+    has_status_icon = soup.find(class_=SEL_STATUS_ICON) is not None
+    has_info_block = soup.find(class_=SEL_INFO_BLOCK) is not None
+
+    if not has_title or not (
+        has_status or has_date or has_lock_form or has_status_icon or has_info_block
+    ):
+        raise DevicePageParseError(
+            f"Missing core device page invariants for device {device_id}"
+        )
+
+
+def _parse_lock_form_state(soup: BeautifulSoup) -> bool | None:
+    """Parse lock state from lock/unlock form button if present."""
+    form = soup.find("form", {"id": ["unlock", "lock"]})
+    if not form:
+        for f in soup.find_all("form"):
+            if f.find("button", {"name": ["lock", "unlock"]}):
+                form = f
+                break
+
+    button = form.find("button") if form else None
+    if button and button.get("name") in ("lock", "unlock"):
+        return button.get("name") == "unlock"
+    return None
+
+
+def _parse_lock_icon_state(soup: BeautifulSoup) -> bool | None:
+    """Parse lock state from stove status icon container if present."""
+    icon_block = soup.find(class_=SEL_STATUS_ICON)
+    if icon_block:
+        if icon_block.find("img", class_=SEL_LOCK_IMG):
+            return True
+        if icon_block.find("img", class_="unlock"):
+            return False
+    return None
+
+
+def _parse_lock_text_state(
+    soup: BeautifulSoup, status: str | None = None
+) -> bool | None:
+    """Parse lock state from status text element or status string."""
+    status_el = soup.find(class_=SEL_STOVE_STATUS_TEXT)
+    raw_status = status_el.get_text(strip=True) if status_el else status
+    if not raw_status:
+        return None
+
+    lower = raw_status.lower()
+    if "locked" in lower:
+        return True
+
+    norm = normalize_status(raw_status)
+    if norm and norm.lower() != lower and "locked" not in norm.lower():
+        return False
+
+    for pattern in STATUS_MAP:
+        if pattern in lower:
+            return "locked" in pattern
+
+    return None
+
+
+def parse_lock_state(
+    html_or_soup: str | BeautifulSoup, status: str | None = None
+) -> bool | None:
+    """Parse lock state (True = locked, False = unlocked, None = unknown) from device HTML or soup."""
+    soup = (
+        html_or_soup
+        if isinstance(html_or_soup, BeautifulSoup)
+        else BeautifulSoup(html_or_soup, "html.parser")
+    )
+
+    state = _parse_lock_form_state(soup)
+    if state is not None:
+        return state
+
+    state = _parse_lock_icon_state(soup)
+    if state is not None:
+        return state
+
+    return _parse_lock_text_state(soup, status)
+
+
 def parse_device_page(
     device_id: str,
     html: str,
@@ -276,6 +379,7 @@ def parse_device_page(
 ) -> DeviceData:
     """Parse the device detail page HTML into a DeviceData dict."""
     soup = BeautifulSoup(html, "html.parser")
+    validate_device_page_invariants(soup, device_id)
     data: DeviceData = {"device_id": device_id}
 
     # Title / name
@@ -289,7 +393,7 @@ def parse_device_page(
     data["status"] = normalize_status(raw_status)
 
     # Lock state
-    data["is_locked"] = _determine_lock_state(soup, data.get("status"))
+    data["is_locked"] = parse_lock_state(soup, data.get("status"))
 
     # Last check-in
     checkin_el = soup.find(class_=SEL_STOVE_DATE)
@@ -323,28 +427,6 @@ def parse_device_page(
         data["events_error"] = str(err)
 
     return data
-
-
-def _determine_lock_state(soup: BeautifulSoup, status: str | None) -> bool:
-    """Helper to parse lock state from button, icon, or status string."""
-    form = soup.find("form", {"id": "unlock"}) or soup.find("form", {"id": "lock"})
-    if not form:
-        for f in soup.find_all("form"):
-            if f.find("button", {"name": ["lock", "unlock"]}):
-                form = f
-                break
-
-    button = form.find("button") if form else None
-    if button and button.get("name") in ("lock", "unlock"):
-        return button.get("name") == "unlock"
-
-    icon_block = soup.find(class_=SEL_STATUS_ICON)
-    if icon_block:
-        lock_img = icon_block.find("img", class_=SEL_LOCK_IMG)
-        return lock_img is not None
-
-    status_text = (status or "").lower()
-    return "locked" in status_text
 
 
 def _parse_info_blocks(soup: BeautifulSoup, data: DeviceData) -> None:

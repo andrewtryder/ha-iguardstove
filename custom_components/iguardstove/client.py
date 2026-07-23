@@ -8,6 +8,7 @@ from typing import Any
 
 import aiohttp
 import yarl
+from bs4 import BeautifulSoup
 
 from .const import (
     BASE_URL,
@@ -17,6 +18,7 @@ from .const import (
 )
 from .exceptions import (
     CannotConnect,
+    DevicePageParseError,
     EventParseError,
     IGuardStoveException,
     InvalidAuth,
@@ -28,8 +30,10 @@ from .parser import (
     parse_dashboard_devices,
     parse_device_page,
     parse_lock_form,
+    parse_lock_state,
     parse_login_csrf,
     parse_login_errors,
+    validate_device_page_invariants,
 )
 from .types import DeviceData, DeviceSummary
 
@@ -40,6 +44,7 @@ _LOGGER = logging.getLogger(__name__)
 # Re-export for backward compatibility
 __all__ = [
     "CannotConnect",
+    "DevicePageParseError",
     "EventParseError",
     "IGuardStoveClient",
     "IGuardStoveException",
@@ -346,13 +351,19 @@ class IGuardStoveClient:
                 )
             raise
 
-        parsed = parse_device_page(device_id, post_html)
-        final_locked = parsed.get("is_locked")
+        final_locked: bool | None = None
+        try:
+            post_soup = BeautifulSoup(post_html, "html.parser")
+            validate_device_page_invariants(post_soup, device_id)
+            final_locked = parse_lock_state(post_soup)
+        except DevicePageParseError, InvalidAuth:
+            final_locked = None
 
         if final_locked != target_locked:
             _, refetch_html, _ = await self._request("GET", url)
-            refetch_parsed = parse_device_page(device_id, refetch_html)
-            final_locked = refetch_parsed.get("is_locked")
+            refetch_soup = BeautifulSoup(refetch_html, "html.parser")
+            validate_device_page_invariants(refetch_soup, device_id)
+            final_locked = parse_lock_state(refetch_soup)
 
         if final_locked != target_locked:
             raise CannotConnect(

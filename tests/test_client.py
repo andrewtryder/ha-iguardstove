@@ -471,6 +471,7 @@ def test_parse_device_page_invalid_numbers() -> None:
     """Test parsing handles invalid integer/float strings gracefully."""
     invalid_html = """
     <html><body>
+      <span class="stove_title">Guest House Stove</span>
       <div class="info_block">
         <span class="info_title">Potential Fires Prevented</span>
         <span class="info_value">invalid_int</span>
@@ -491,6 +492,7 @@ def test_parse_device_page_icon_and_status_fallbacks() -> None:
     """Test lock state fallback parsing via status icon and status text."""
     icon_html = """
     <html><body>
+      <span class="stove_title">Guest House Stove</span>
       <div class="stove_status_icon"><img class="lock" /></div>
     </body></html>
     """
@@ -500,6 +502,7 @@ def test_parse_device_page_icon_and_status_fallbacks() -> None:
 
     status_html = """
     <html><body>
+      <span class="stove_title">Guest House Stove</span>
       <span class="stove_status_text">Stove is locked out</span>
     </body></html>
     """
@@ -714,3 +717,36 @@ async def test_async_set_lock_state_relogin_retry(aresponses) -> None:
         with patch.object(client, "async_login", new_callable=AsyncMock) as mock_login:
             await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
             mock_login.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_set_lock_state_unlock_post_returns_non_device_page(
+    aresponses,
+) -> None:
+    """Test that unlock POST returning non-device page triggers GET refetch and fails if refetch stays locked."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+    non_device_html = "<html><body><h1>Welcome to iGuardFire Portal</h1></body></html>"
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=non_device_html, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        with pytest.raises(
+            CannotConnect, match="Failed to confirm lock state transition"
+        ):
+            await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
