@@ -2,99 +2,118 @@
   <img src="custom_components/iguardstove/brand/icon.png" alt="iGuardStove" width="120">
 </p>
 
-# ha-iguardstove
+# iGuardStove for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
-[![tests](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/tests.yml/badge.svg?style=for-the-badge)](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/tests.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/andrewtryder/ha-iguardstove?style=for-the-badge)](https://github.com/andrewtryder/ha-iguardstove/releases)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/github/license/andrewtryder/ha-iguardstove?style=for-the-badge)](LICENSE)
 
-A Home Assistant custom integration for [iGuardStove / iGuardFire](https://www.iguardstove.com) devices. Replaces the `multiscrape` blueprint approach with a first-class HA integration that auto-discovers all stoves on your account.
+Bring your [iGuardStove / iGuardFire](https://www.iguardstove.com) devices into Home Assistant — see stove status on your dashboard, get alerts when something happens, and lock the stove remotely when you need to.
 
-![iGuardStove Device Dashboard](images/device_page.png)
+- **Status on your dashboard** — stove state, temperature, and last check-in at a glance
+- **Instant alerts** — motion, shutoff, night lock, and other activity as Home Assistant events
+- **One-click automations** — import ready-made blueprints; no YAML required
+- **Auto-discovery** — every stove on your iGuardFire account shows up automatically
+
+![iGuardStove device entities in Home Assistant](images/device_page.png)
+
+*Example: stove status, temperature, and activity entities on a Home Assistant dashboard.*
+
+## Contents
+
+- [Safety warning](#important-safety-warning)
+- [What you get](#what-you-get)
+- [Activity events](#activity-events)
+- [Automation blueprints](#automation-blueprints)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [How it works](#how-it-works)
+- [Removing the integration](#removing-the-integration)
+- [Project info](#project-info)
 
 ---
 
 > [!WARNING]
 > ### Important Safety Warning
-> This integration provides remote control capabilities over physical stove lockout hardware.
-> - **Accidental Remote Activation**: Automating stove lock/unlock operations via voice assistants (Alexa, Google Assistant, Siri) or automated triggers carries inherent safety risks.
-> - **Disabled by Default**: To prevent accidental remote physical activation, the write-capable **Stove Lock** entity is **disabled by default** in Home Assistant's Entity Registry. To use remote control, you must explicitly enable the entity in **Settings → Devices & Services → Entities → Stove Lock → Enable**.
-> - **Separate Remote-Unlock Permission**: Enabling the entity allows remote locking. For safety, **Remote Unlock** remains disabled by default even when the entity is enabled. Unlocking the stove requires enabling **Allow remote disengagement of stove lockout (Remote Unlock)** in **Settings → Devices & Services → iGuardStove → Configure**.
+> This integration can remotely control physical stove lockout hardware.
+> - **Accidental remote activation**: Automating stove lock/unlock with voice assistants (Alexa, Google Assistant, Siri) or other automations carries inherent safety risks.
+> - **Disabled by default**: To reduce accidental use, the entity that can lock/unlock your stove (**Stove Lock**) starts **disabled**. To use remote control, enable it under **Settings → Devices & Services → Entities → Stove Lock → Enable**.
+> - **Separate remote-unlock permission**: Enabling the entity allows remote locking. For safety, **Remote Unlock** stays off by default. To allow unlocking, turn on **Allow remote disengagement of stove lockout (Remote Unlock)** under **Settings → Devices & Services → iGuardStove → Configure**.
 
 ---
 
-## Features
+## What you get
 
-| Entity | Platform | Description |
-|---|---|---|
-| **Status** | `sensor` | Human-readable stove status (e.g. "Stove Off", "Night Lock") |
-| **Last Check-In** | `sensor` (diagnostic) | Relative time since the device last phoned home (e.g. "24 minutes ago") |
-| **Temperature** | `sensor` | Ambient temperature measured by the unit (°F or °C per device settings) |
-| **Fires Prevented** | `sensor` (diagnostic) | Total cumulative shutoff events recorded by the stove unit |
-| **Stove Lock** | `lock` (disabled by default) | Remote lock/unlock from HA (requires entity opt-in and separate Options Flow permission for unlock) |
-| **Activity** | `event` | Portal activity events (e.g. Activity Seen, Night Lock ON/OFF, Stove Turned ON/OFF) detected during each polling cycle |
+| Feature | Description |
+|---|---|
+| **Status** | Human-readable stove status (e.g. "Stove Off", "Night Lock") |
+| **Last Check-In** | How long since the device last contacted the portal (e.g. "24 minutes ago") |
+| **Temperature** | Ambient temperature from the unit (°F or °C per device settings) |
+| **Fires Prevented** | Total shutoff events recorded by the stove |
+| **Stove Lock** | Remote lock/unlock from Home Assistant (opt-in; unlock needs a separate setting) |
+| **Activity** | Portal activity events you can use for notifications and automations |
 
-All stoves registered to your account are discovered automatically at setup time, with dynamic discovery running every 6 hours and state updates polled on a configurable interval (**30–300 seconds**, default **60**).
-
----
-
-## Activity Events
-
-The integration parses the "Today's Events" table directly from the existing device detail HTML page fetched on each poll (with **no additional HTTP requests**).
-
-### Supported Event Types
-- `activity_seen` ("Activity Seen")
-- `night_lock_on` ("Night Lock ON")
-- `night_lock_off` ("Night Lock OFF")
-- `stove_on` ("Stove Turned ON")
-- `stove_off` ("Stove Turned OFF")
-- `motion_auto_resumed` ("Motion Auto Resumed")
-- `auto_shut_off` ("Auto Shut Off" / "Shut Off")
-- `emergency_button` ("Emergency Button Pressed")
-- `temperature_alert` ("Temperature Alert")
-- `lost_communication` ("Lost Communication")
-- `bypassed` ("iGuardStove Bypassed")
-- `no_activity_grace_period` ("No Activity During Grace Period")
-- `unknown` (Unmapped portal event labels, with `raw_label` preserved as an attribute)
-
-### Event Handling & Deduplication
-- **No Replaying on Startup**: Existing events present on the portal page at initial integration setup or Home Assistant restart are seeded into deduplication memory and **not** replayed as new events.
-- **Timezone Handling**: Displayed portal times (which load `/static/tz.js` on the web interface) are combined with the current Home Assistant local date and interpreted in the Home Assistant local timezone.
-- **Oldest-First Emission**: When multiple new events are detected in a single refresh, they are emitted in chronological order (oldest-first) to ensure Home Assistant automations observe proper event ordering.
-- **Persistence**: Event fingerprints are persisted to Home Assistant storage using a 48-hour rolling window so reloads and restarts maintain exact deduplication state.
+All stoves on your account are discovered at setup. New stoves are picked up automatically in the background.
 
 ---
 
-## Automation Blueprints
+## Activity events
 
-This repository includes project-provided Home Assistant automation blueprints to easily create automations for iGuardStove safety and operational activity events directly in the Home Assistant UI.
+Build notifications and automations from real stove activity — for example when motion is detected, night lock changes, or the stove shuts off.
 
-### Included Blueprints
+Supported events include:
 
-1. **iGuardStove - Event Action Runner**: A flexible blueprint to trigger custom actions (mobile/persistent notifications, lights, sirens, TTS, or scripts) whenever selected iGuardStove event types occur.
+- Motion Detected (Activity Seen)
+- Night Lock On / Off
+- Stove Turned On / Off
+- Motion Auto Resumed
+- Auto Shut Off
+- Emergency Button Pressed
+- Temperature Alert
+- Lost Communication
+- iGuardStove Bypassed
+- No Activity During Grace Period
+
+<details>
+<summary>Technical details (for contributors)</summary>
+
+Event parsing, deduplication, timezone handling, and persistence are documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+</details>
+
+---
+
+## Automation blueprints
+
+A **blueprint** is a pre-built automation you can import with one click — no YAML or coding required.
+
+### Included blueprints
+
+1. **iGuardStove - Event Action Runner**: Trigger custom actions (notifications, lights, sirens, TTS, or scripts) when selected iGuardStove events occur.
    [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fandrewtryder%2Fha-iguardstove%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Figuardstove%2Fselected_event_actions.yaml)
 
-2. **iGuardStove - Stove Safety Notification**: A guided blueprint configured for mobile app safety alerts with customizable titles and optional critical notification sound overrides (bypassing silent mode on supported devices).
+2. **iGuardStove - Stove Safety Notification**: Guided mobile safety alerts with customizable titles and optional critical notification sounds (can bypass silent mode on supported devices).
    [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fandrewtryder%2Fha-iguardstove%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Figuardstove%2Fsafety_notification.yaml)
 
-### Blueprint Safety Principles
+### Blueprint safety principles
 
 To preserve the safety model of iGuardStove:
-- **No Automatic Unlocking**: Blueprints in this repository are strictly notification and action runners. Blueprints will **never** automatically unlock the stove (e.g., via presence, schedules, or voice commands).
-- **Manual Lock Entity Opt-in**: The write-capable lock entity remains disabled by default in Home Assistant.
+
+- **No automatic unlocking**: These blueprints only run notifications and actions. They will **never** unlock the stove (e.g. via presence, schedules, or voice).
+- **Manual lock opt-in**: The lock entity remains disabled by default until you enable it.
 
 ---
 
 ## Prerequisites
 
-- An active iGuardFire account.
-- At least one iGuardStove visible in the iGuardFire management portal.
-- Home Assistant 2026.3.0 or newer.
-- Internet access from Home Assistant to `manage.iguardfire.com`.
+- An active iGuardFire account
+- At least one iGuardStove visible in the iGuardFire management portal
+- Home Assistant 2026.3.0 or newer
+- Internet access from Home Assistant to `manage.iguardfire.com`
 
 > [!NOTE]
-> This integration depends on an undocumented portal HTML interface (`manage.iguardfire.com`) and does not use an official REST API.
+> This works by securely signing into the same iGuardFire website you already use — iGuardFire doesn't currently offer a public API for smart home tools.
 
 ---
 
@@ -102,15 +121,19 @@ To preserve the safety model of iGuardStove:
 
 ### Via HACS (recommended)
 
-1. In HACS → **Integrations** → ⋮ → **Custom repositories**
-2. Add `https://github.com/andrewtryder/ha-iguardstove` as an **Integration**
-3. Install **iGuardStove** from HACS
-4. Restart Home Assistant
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-iguardstove&category=integration)
 
-### Manual
+1. Click the badge above (or add `https://github.com/andrewtryder/ha-iguardstove` as a custom repository in HACS → **Integrations**)
+2. Install **iGuardStove** from HACS
+3. Restart Home Assistant
+
+<details>
+<summary>Advanced: manual installation</summary>
 
 1. Copy the `custom_components/iguardstove` folder into your `<config>/custom_components/` directory
 2. Restart Home Assistant
+
+</details>
 
 ---
 
@@ -125,13 +148,11 @@ No YAML configuration is needed.
 
 ---
 
-## Architecture & Limitations
+## How it works
 
-- **Web Scraping Dependency**: The integration authenticates against `manage.iguardfire.com` using a Django CSRF token + session cookie flow and scrapes HTML detail pages using BeautifulSoup. Because there is no official REST API, breaking changes to the portal's DOM layout may require integration updates.
-- **Polling Interval**: Device pages are polled on a configurable interval (**30–300 seconds**, default **60**).
-- **Dynamic Discovery**: New stoves added to an existing account are discovered automatically during periodic background discovery passes (every **6 hours**).
+The integration periodically signs into the iGuardFire portal on your behalf, reads each stove's status page, and updates Home Assistant. New stoves on your account are found automatically.
 
-### Entities per Device
+### Entities per device
 
 ```
 sensor.guest_house_stove_status
@@ -142,20 +163,9 @@ lock.guest_house_stove_stove_lock (disabled by default)
 event.guest_house_stove_activity
 ```
 
----
+For polling intervals, authentication, scraping, and other internals, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Migration from multiscrape
-
-If you were previously using the `multiscrape` blueprint, remove those entries from your `configuration.yaml` after installing this integration. The entity IDs produced by this integration will differ; update any automations or dashboards accordingly.
-
-| multiscrape sensor | This integration |
-|---|---|
-| `sensor.guest_house_stove_status` | `sensor.guest_house_stove_status` |
-| `sensor.guest_house_stove_last_check_in` | `sensor.guest_house_stove_last_check_in` |
-| _(not available)_ | `sensor.guest_house_stove_temperature` |
-| _(not available)_ | `sensor.guest_house_stove_fires_prevented` |
-| _(not available)_ | `lock.guest_house_stove_stove_lock` |
-| _(not available)_ | `event.guest_house_stove_activity` |
+Coming from the older multiscrape blueprint? See [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ---
 
@@ -171,18 +181,9 @@ Removing the integration does not modify the iGuardFire account, portal settings
 
 ---
 
-## Security
+## Project info
 
-See [SECURITY.md](SECURITY.md) for full security policy, vulnerability reporting, and credential storage security information.
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## License
-
-[MIT](LICENSE)
+- **Security** — See [SECURITY.md](SECURITY.md) for vulnerability reporting and credential storage.
+- **Contributing** — See [CONTRIBUTING.md](CONTRIBUTING.md). [![tests](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/tests.yml/badge.svg)](https://github.com/andrewtryder/ha-iguardstove/actions/workflows/tests.yml)
+- **Architecture** — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **License** — [MIT](LICENSE)
