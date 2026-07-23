@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.4.0...v1.4.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* account-level login lock, verification GET recovery, discovery throttling, stale device reconciliation, and session lifecycle ([#38](https://github.com/andrewtryder/ha-iguardstove/issues/38)) ([ad39b27](https://github.com/andrewtryder/ha-iguardstove/commit/ad39b27d57d9892f47e8bd7f64df9c9c88d9e4c8))
+* event fingerprint filtering, timezone-naive timestamp pruning, and quality scale assessment ([#39](https://github.com/andrewtryder/ha-iguardstove/issues/39)) ([f3a0d2f](https://github.com/andrewtryder/ha-iguardstove/commit/f3a0d2f1d9c1a075962316dd2b3e1db4e581cd92))
+* parse lock state fail-safe and validate device page invariants ([#37](https://github.com/andrewtryder/ha-iguardstove/issues/37)) ([872c4e9](https://github.com/andrewtryder/ha-iguardstove/commit/872c4e9ec30dd4ee912753a13f75eb41a67034ec))
+
 ## [1.4.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.3.0...v1.4.0) (2026-07-22)
 
 
