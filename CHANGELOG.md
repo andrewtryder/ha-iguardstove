@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.7.0...v1.7.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* detach HA clientsessions instead of closing them ([#68](https://github.com/andrewtryder/ha-iguardstove/issues/68)) ([66f62fd](https://github.com/andrewtryder/ha-iguardstove/commit/66f62fd355c3f1ae247bdb317f6eff7e4b456ac8))
+* harden dashboard empty detection, unload removal, and secret redaction ([#66](https://github.com/andrewtryder/ha-iguardstove/issues/66)) ([eae1434](https://github.com/andrewtryder/ha-iguardstove/commit/eae1434f9a44ef3cca12a7a97ff8e4d4b639501f))
+* prioritize device-structure detection and retry unparseable setup discovery ([#69](https://github.com/andrewtryder/ha-iguardstove/issues/69)) ([b14730d](https://github.com/andrewtryder/ha-iguardstove/commit/b14730dd9fe9c76762b247f2c97c62a73f50fe61))
+
 ## [1.7.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.6.1...v1.7.0) (2026-07-23)
 
 
