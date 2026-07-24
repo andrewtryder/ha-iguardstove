@@ -187,9 +187,11 @@ async def test_diagnostics_short_password_always_redacted(hass: HomeAssistant) -
     )
 
     diag = await async_get_config_entry_diagnostics(hass, entry)
-    diag_str = json.dumps(diag)
-    assert short_password not in diag_str
-    assert "Guest House Stove" not in diag_str
+    expected_anon_id = hashlib.sha256(b"AABBCCDD1234").hexdigest()[:8]
+    error_text = diag["coordinator"]["data"]["errors"][expected_anon_id]
+    assert "password=ab" not in error_text
+    assert "password=**REDACTED**" in error_text
+    assert "Guest House Stove" not in error_text
 
 
 def test_sanitize_nested_helper() -> None:

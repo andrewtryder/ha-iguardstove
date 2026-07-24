@@ -181,12 +181,24 @@ def test_parse_dashboard_devices_identifier_variants() -> None:
     ]
 
 
-def test_parse_dashboard_devices_rejects_unsafe_identifiers() -> None:
-    """Reject absolute URLs, nested paths, dot segments, queries, and fragments."""
+def test_parse_dashboard_devices_rejects_cross_origin_identifiers() -> None:
+    """Cross-origin absolute/protocol-relative links must never be treated as devices."""
     html = """
     <html><body>
       <a href="https://manage.iguardfire.com/devices/AABBCCDD1234/">abs</a>
       <a href="//evil.example/devices/AABBCCDD1234/">proto</a>
+      <div class="dashboard">No stoves registered.</div>
+      <a href="/account/logout/">Logout</a>
+    </body></html>
+    """
+    assert parse_dashboard_devices(html) == []
+
+
+def test_parse_dashboard_devices_malformed_relative_links_raise_error() -> None:
+    """Relative /devices/ links that fail identifier or path rules are parse
+    failures, even when empty-account text and a logout link are also present."""
+    html = """
+    <html><body>
       <a href="/devices/../admin/">dotdot</a>
       <a href="/devices/AABBCCDD1234/extra/">nested</a>
       <a href="/devices/AABBCCDD1234/?q=1">query</a>
@@ -195,11 +207,28 @@ def test_parse_dashboard_devices_rejects_unsafe_identifiers() -> None:
       <a href="/devices/-AABBCCDD/">leading-hyphen</a>
       <a href="/devices/AABBCCDD-/">trailing-hyphen</a>
       <a href="/devices/not_hex_id/">non-hex</a>
-      <div class="dashboard">No stoves</div>
+      <div class="dashboard">No stoves registered.</div>
       <a href="/account/logout/">Logout</a>
     </body></html>
     """
-    assert parse_dashboard_devices(html) == []
+    with pytest.raises(DashboardParseError, match="device-like structure"):
+        parse_dashboard_devices(html)
+
+
+def test_parse_dashboard_devices_empty_text_does_not_mask_device_link() -> None:
+    """Empty-account-sounding text must not mask an unparseable device link."""
+    html = """
+    <html><body>
+      <div class="stove_line">
+        <div class="stove_title">Guest House</div>
+        <a href="/devices/new-id-format/">View</a>
+      </div>
+      <p>No devices offline.</p>
+      <a href="/account/logout/">Logout</a>
+    </body></html>
+    """
+    with pytest.raises(DashboardParseError, match="device-like structure"):
+        parse_dashboard_devices(html)
 
 
 def test_parse_dashboard_devices_unsupported_path_raises_error() -> None:

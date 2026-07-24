@@ -197,6 +197,42 @@ async def test_setup_entry_live_discovery_cannot_connect(hass: HomeAssistant) ->
     mock_close.assert_awaited_once()
 
 
+async def test_setup_entry_live_discovery_dashboard_parse_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test setup with live discovery raises ConfigEntryNotReady on DashboardParseError."""
+    from custom_components.iguardstove.exceptions import DashboardParseError
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_login",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.async_get_devices",
+            side_effect=DashboardParseError("malformed dashboard"),
+        ),
+        patch(
+            "custom_components.iguardstove.client.IGuardStoveClient.close",
+            new_callable=AsyncMock,
+        ) as mock_close,
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    mock_close.assert_awaited_once()
+
+
 async def test_setup_entry_coordinator_invalid_auth(hass: HomeAssistant) -> None:
     """Test that coordinator InvalidAuth leads to ConfigEntryAuthFailed and SETUP_ERROR."""
     entry = _make_entry()
