@@ -15,6 +15,7 @@ from .coordinator import (
     IGuardStoveData,
     IGuardStoveDataUpdateCoordinator,
 )
+from .exceptions import DashboardParseError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,9 +66,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: IGuardStoveConfigEntry) 
                 raise ConfigEntryAuthFailed(
                     f"Invalid credentials discovering devices: {err}"
                 ) from err
-            except CannotConnect as err:
+            except (CannotConnect, DashboardParseError) as err:
                 raise ConfigEntryNotReady(
-                    f"Failed to connect discovering devices: {err}"
+                    f"Failed to discover iGuardStove devices: {err}"
                 ) from err
 
         if not device_ids:
