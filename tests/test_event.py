@@ -1,8 +1,7 @@
 """Tests for iGuardStove event entity platform and deduplication."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from zoneinfo import ZoneInfo
 
 import pytest
 from homeassistant.core import HomeAssistant, callback
@@ -29,9 +28,8 @@ async def test_event_entity_creation_and_initial_seeding(hass: HomeAssistant) ->
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
     event_1 = StoveEvent(
-        occurred_at=datetime(2026, 7, 22, 9, 47, tzinfo=mock_tz),
+        occurred_at=dt_util.now() - timedelta(hours=2),
         event_type=StoveEventType.ACTIVITY_SEEN,
         raw_label="Activity Seen",
     )
@@ -94,9 +92,10 @@ async def test_event_entity_fires_new_events_oldest_first(
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
+    # Relative timestamps stay inside the 48h fingerprint retention window.
+    now = dt_util.now()
     initial_event = StoveEvent(
-        occurred_at=datetime(2026, 7, 22, 7, 0, tzinfo=mock_tz),
+        occurred_at=now - timedelta(hours=3),
         event_type=StoveEventType.NIGHT_LOCK_OFF,
         raw_label="Night Lock OFF",
     )
@@ -130,14 +129,14 @@ async def test_event_entity_fires_new_events_oldest_first(
 
         coordinator = entry.runtime_data.coordinator
 
-        # Pass 2: portal has 2 new events (table is newest-first: 9:50 AM then 9:47 AM)
+        # Pass 2: portal has 2 new events (table is newest-first)
         new_event_1 = StoveEvent(
-            occurred_at=datetime(2026, 7, 22, 9, 47, tzinfo=mock_tz),
+            occurred_at=now - timedelta(hours=2),
             event_type=StoveEventType.ACTIVITY_SEEN,
             raw_label="Activity Seen",
         )
         new_event_2 = StoveEvent(
-            occurred_at=datetime(2026, 7, 22, 9, 50, tzinfo=mock_tz),
+            occurred_at=now - timedelta(hours=1),
             event_type=StoveEventType.STOVE_ON,
             raw_label="Stove Turned ON",
         )
@@ -172,15 +171,15 @@ async def test_event_entity_fires_new_events_oldest_first(
             await coordinator.async_refresh()
             await hass.async_block_till_done()
 
-        # Should fire oldest first: 9:47 AM then 9:50 AM
+        # Should fire oldest first
         assert len(fired_events) == 2
         assert fired_events[0] == (
             "activity_seen",
-            datetime(2026, 7, 22, 9, 47, tzinfo=mock_tz).isoformat(),
+            new_event_1.occurred_at.isoformat(),
         )
         assert fired_events[1] == (
             "stove_on",
-            datetime(2026, 7, 22, 9, 50, tzinfo=mock_tz).isoformat(),
+            new_event_2.occurred_at.isoformat(),
         )
 
         # Pass 3: refresh with identical data -> no new events fired
@@ -208,7 +207,6 @@ async def test_same_minute_duplicate_events(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
     data_pass_1 = {
         "device_id": "AABBCCDD1234",
         "device_name": "Kitchen Stove",
@@ -249,14 +247,15 @@ async def test_same_minute_duplicate_events(hass: HomeAssistant) -> None:
         entity._trigger_event = _spy_trigger
 
         # Two identical events in same minute
+        same_minute = dt_util.now() - timedelta(hours=1)
         dup_event_0 = StoveEvent(
-            occurred_at=datetime(2026, 7, 22, 9, 47, tzinfo=mock_tz),
+            occurred_at=same_minute,
             event_type=StoveEventType.ACTIVITY_SEEN,
             raw_label="Activity Seen",
             duplicate_ordinal=0,
         )
         dup_event_1 = StoveEvent(
-            occurred_at=datetime(2026, 7, 22, 9, 47, tzinfo=mock_tz),
+            occurred_at=same_minute,
             event_type=StoveEventType.ACTIVITY_SEEN,
             raw_label="Activity Seen",
             duplicate_ordinal=1,
@@ -294,7 +293,6 @@ async def test_unknown_events_fire_with_raw_label(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
     data_pass_1 = {
         "device_id": "AABBCCDD1234",
         "device_name": "Kitchen Stove",
@@ -335,7 +333,7 @@ async def test_unknown_events_fire_with_raw_label(hass: HomeAssistant) -> None:
         entity._trigger_event = _spy_trigger
 
         unknown_evt = StoveEvent(
-            occurred_at=datetime(2026, 7, 22, 10, 15, tzinfo=mock_tz),
+            occurred_at=dt_util.now() - timedelta(hours=1),
             event_type=StoveEventType.UNKNOWN,
             raw_label="Rare Custom Alert",
         )
@@ -376,9 +374,8 @@ async def test_multi_device_independent_seen_state(hass: HomeAssistant) -> None:
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
     event_dev1 = StoveEvent(
-        occurred_at=datetime(2026, 7, 22, 9, 0, tzinfo=mock_tz),
+        occurred_at=dt_util.now() - timedelta(hours=1),
         event_type=StoveEventType.ACTIVITY_SEEN,
         raw_label="Activity Seen",
     )
@@ -471,9 +468,8 @@ async def test_reloading_integration_does_not_replay_persisted_events(
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
     event_1 = StoveEvent(
-        occurred_at=datetime(2026, 7, 22, 9, 47, tzinfo=mock_tz),
+        occurred_at=dt_util.now() - timedelta(hours=1),
         event_type=StoveEventType.ACTIVITY_SEEN,
         raw_label="Activity Seen",
     )
@@ -774,14 +770,14 @@ async def test_restart_seeding_with_persisted_storage(hass: HomeAssistant) -> No
     )
     entry.add_to_hass(hass)
 
-    mock_tz = ZoneInfo("UTC")
+    now = dt_util.now()
     today_event = StoveEvent(
-        occurred_at=datetime(2026, 7, 22, 10, 0, tzinfo=mock_tz),
+        occurred_at=now - timedelta(hours=1),
         event_type=StoveEventType.STOVE_ON,
         raw_label="Stove Turned ON",
     )
 
-    old_fp = "AABBCCDD1234|2026-07-21T08:00:00+00:00|stove turned off|0"
+    old_fp = f"AABBCCDD1234|{(now - timedelta(days=3)).isoformat()}|stove turned off|0"
 
     with (
         patch(
@@ -947,7 +943,9 @@ async def test_prune_fingerprints_handles_naive_timestamps_and_non_strings(
         assert entity is not None
 
         # Populate with naive timestamp string, unparseable string, and non-string values
-        recent_naive_fp = "DEV1|2026-07-22T12:00:00|recent naive label|0"
+        now = dt_util.now()
+        recent_naive = (now - timedelta(hours=1)).replace(tzinfo=None)
+        recent_naive_fp = f"DEV1|{recent_naive.isoformat()}|recent naive label|0"
         old_naive_fp = "DEV1|2020-01-01T00:00:00|old naive label|0"
         bad_format_fp = "invalid_fingerprint_without_pipe"
         non_string_val = 99999
