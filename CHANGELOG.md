@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.7.2...v2.0.0) (2026-08-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* Legacy lock unique_id `{device_id}_stove_lock` is removed on upgrade. Master Lock uses `{device_id}_master_lock` (new entity_id). Use Stove Lockout (`…_stove_lockout`) or Status for “can the stove operate?” See docs/MIGRATION.md.
+
+### Features
+
+* split Master Lock from effective stove lockout ([#81](https://github.com/andrewtryder/ha-iguardstove/issues/81)) ([bacabc9](https://github.com/andrewtryder/ha-iguardstove/commit/bacabc9f9e0713d6cc1abdc5ad6cd7549067366f))
+
 ## [1.7.2](https://github.com/andrewtryder/ha-iguardstove/compare/v1.7.1...v1.7.2) (2026-08-12)
 
 
