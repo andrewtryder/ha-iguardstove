@@ -31,9 +31,9 @@ from .parser import (
     parse_dashboard_devices,
     parse_device_page,
     parse_lock_form,
-    parse_lock_state,
     parse_login_csrf,
     parse_login_errors,
+    parse_master_lock_state,
     validate_device_page_invariants,
 )
 from .types import DeviceData, DeviceSummary
@@ -416,10 +416,11 @@ class IGuardStoveClient:
             device_id, html, event_date=event_date, tzinfo=tzinfo
         )
         _LOGGER.debug(
-            "Parsed device %s: status=%s lock=%s temp=%s events=%d",
+            "Parsed device %s: status=%s master_lock=%s lockout=%s temp=%s events=%d",
             device_id,
             data.get("status"),
-            data.get("is_locked"),
+            data.get("is_master_locked"),
+            data.get("is_lockout_active"),
             data.get("temperature"),
             len(data.get("today_events") or ()),
         )
@@ -438,7 +439,7 @@ class IGuardStoveClient:
     async def async_set_lock_state(
         self, device_id: str, target_locked: bool, retry_login: bool = True
     ) -> None:
-        """Safely and idempotently set device lock state."""
+        """Safely and idempotently set Master Lock state."""
         lock = self._get_device_lock(device_id)
         async with lock:
             await self._async_set_lock_state_internal(
@@ -448,7 +449,7 @@ class IGuardStoveClient:
     async def _async_set_lock_state_internal(
         self, device_id: str, target_locked: bool, retry_login: bool = True
     ) -> None:
-        """Internal helper for setting lock state while holding per-device lock."""
+        """Internal helper for setting Master Lock while holding per-device lock."""
         url = f"{BASE_URL}/devices/{device_id}/"
         gen = self._auth_generation
         try:
@@ -467,9 +468,9 @@ class IGuardStoveClient:
         except ValueError as ex:
             raise CannotConnect(str(ex)) from ex
 
-        if form_data.is_currently_locked == target_locked:
+        if form_data.is_master_locked == target_locked:
             _LOGGER.debug(
-                "Device %s is already in target lock state (%s), skipping POST",
+                "Device %s Master Lock already at target (%s), skipping POST",
                 device_id,
                 target_locked,
             )
@@ -512,12 +513,12 @@ class IGuardStoveClient:
         post_html: str | None,
         retry_login: bool,
     ) -> bool:
-        """Return True if device page confirms the target lock state."""
+        """Return True if the form confirms the target Master Lock state."""
         if post_html is not None:
             try:
                 post_soup = BeautifulSoup(post_html, "html.parser")
                 validate_device_page_invariants(post_soup, device_id)
-                final_locked = parse_lock_state(post_soup)
+                final_locked = parse_master_lock_state(post_soup)
                 if final_locked == target_locked:
                     return True
             except (DevicePageParseError, InvalidAuth):
@@ -528,7 +529,7 @@ class IGuardStoveClient:
         )
         refetch_soup = BeautifulSoup(refetch_html, "html.parser")
         validate_device_page_invariants(refetch_soup, device_id)
-        return parse_lock_state(refetch_soup) == target_locked
+        return parse_master_lock_state(refetch_soup) == target_locked
 
     async def _execute_lock_state_change(
         self,
@@ -540,7 +541,7 @@ class IGuardStoveClient:
         *,
         allow_controlled_retry: bool,
     ) -> None:
-        """Perform lock state change HTTP POST and verify state update."""
+        """Perform Master Lock state change HTTP POST and verify form update."""
         expected_button_name = "lock" if target_locked else "unlock"
         if form_data.button_name != expected_button_name:
             raise CannotConnect(
@@ -559,7 +560,7 @@ class IGuardStoveClient:
         gen = self._auth_generation
 
         _LOGGER.debug(
-            "Posting lock state change for device %s (target_locked=%s) to %s",
+            "Posting Master Lock change for device %s (target_locked=%s) to %s",
             device_id,
             target_locked,
             post_url,
@@ -588,7 +589,7 @@ class IGuardStoveClient:
                 url, device_id, target_locked, None, retry_login
             ):
                 _LOGGER.info(
-                    "Lock state for device %s already at target %s after ambiguous POST",
+                    "Master Lock for device %s already at target %s after ambiguous POST",
                     device_id,
                     target_locked,
                 )
@@ -596,7 +597,7 @@ class IGuardStoveClient:
 
             if not allow_controlled_retry:
                 raise CannotConnect(
-                    f"Failed to confirm lock state transition for device {device_id}: "
+                    f"Failed to confirm Master Lock transition for device {device_id}: "
                     f"expected {target_locked} after ambiguous POST"
                 ) from err
 
@@ -606,9 +607,9 @@ class IGuardStoveClient:
             except ValueError as ex:
                 raise CannotConnect(str(ex)) from ex
 
-            if refreshed_form.is_currently_locked == target_locked:
+            if refreshed_form.is_master_locked == target_locked:
                 _LOGGER.info(
-                    "Lock state for device %s already at target %s after form refresh",
+                    "Master Lock for device %s already at target %s after form refresh",
                     device_id,
                     target_locked,
                 )
@@ -628,13 +629,13 @@ class IGuardStoveClient:
             url, device_id, target_locked, post_html, retry_login
         ):
             _LOGGER.info(
-                "Lock state for device %s successfully changed to %s",
+                "Master Lock for device %s successfully changed to %s",
                 device_id,
                 target_locked,
             )
             return
 
         raise CannotConnect(
-            f"Failed to confirm lock state transition for device {device_id}: "
+            f"Failed to confirm Master Lock transition for device {device_id}: "
             f"expected {target_locked}"
         )

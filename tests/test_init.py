@@ -21,7 +21,8 @@ MOCK_DEVICE_DATA = {
         "device_name": "Guest House Stove",
         "status": "Stove Off",
         "status_raw": "iGuardStove is off",
-        "is_locked": False,
+        "is_master_locked": False,
+        "is_lockout_active": False,
         "last_check_in": "20 minutes ago",
         "temperature": 72.0,
         "temperature_unit": "°F",
@@ -440,12 +441,18 @@ async def test_setup_reload_and_unload_session_cleanup(hass: HomeAssistant) -> N
 
 
 async def test_async_migrate_entry(hass: HomeAssistant) -> None:
-    """Test config entry migration for version 1 and unsupported future version."""
+    """Test config entry migration for version 1→2 and unsupported future version."""
     from custom_components.iguardstove import async_migrate_entry
 
     entry_v1 = MockConfigEntry(domain=DOMAIN, version=1, data={})
     entry_v1.add_to_hass(hass)
     assert await async_migrate_entry(hass, entry_v1) is True
+    assert entry_v1.version == 2
+
+    entry_v2 = MockConfigEntry(domain=DOMAIN, version=2, data={})
+    entry_v2.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry_v2) is True
+    assert entry_v2.version == 2
 
     entry_future = MockConfigEntry(domain=DOMAIN, version=99, data={})
     entry_future.add_to_hass(hass)

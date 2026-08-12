@@ -8,14 +8,15 @@ Welcome! You are working on the `ha-iguardstove` repository, a Home Assistant cu
 *   **Authentication Flow:** The integration authenticates against `manage.iguardfire.com` using a standard session-cookie and Django CSRF token login flow (similar to a web browser).
 *   **Data Retrieval:** The integration relies on **web scraping** using `BeautifulSoup` rather than a standard REST API. It scrapes device detail pages.
 *   **Polling Interval:** Scraping happens on a configurable interval (**30–300 seconds**, default **60**).
-*   **Lock Mechanism:** The `lock` toggle (`lock` entity) POSTs to the same device page form that the "Lock" button on the website uses. **Critical:** The portal uses a single toggle action (not separate lock/unlock endpoints). Therefore, the integration *must* check the current lock state before acting to avoid double-flips.
+*   **Lock Mechanism:** The `lock` entity controls **Master Lock** only (the portal form toggle; unique_id `{device_id}_master_lock`). Effective lockout from Scheduled/Night Lock is separate and exposed as a read-only binary sensor (`{device_id}_stove_lockout`). Config entry version 2 retires legacy `{device_id}_stove_lock` lock registry entries so they are not silently repurposed. **Critical:** The portal uses a single toggle action (not separate lock/unlock endpoints). Therefore, the integration *must* check the current Master Lock form state before acting to avoid double-flips.
 
 ## 2. Architecture & Code Organization
 
 *   **`client.py`:** Contains the API interaction logic (`IGuardStoveClient`). This is where all HTTP requests (aiohttp), BeautifulSoup parsing, and CSRF handling live.
 *   **`coordinator.py`:** Contains the `IGuardStoveDataUpdateCoordinator` which inherits from Home Assistant's `DataUpdateCoordinator`. This handles the 60-second polling loop and state updates.
 *   **`config_flow.py`:** Handles the UI-based setup process. This integration requires **no YAML configuration**.
-*   **`sensor.py`, `lock.py`, `event.py`:** Home Assistant entity platform implementations.
+*   **`sensor.py`, `binary_sensor.py`, `lock.py`, `event.py`:** Home Assistant entity platform implementations.
+*   **`entity_migration.py`:** Config-entry v1→v2 entity registry migration (legacy stove lock → Master Lock unique_id).
 
 ## 3. Tooling & Development Workflow
 

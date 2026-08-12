@@ -11,8 +11,13 @@
         "default": "mdi:fire-alert"
       }
     },
+    "binary_sensor": {
+      "stove_lockout": {
+        "default": "mdi:lock-alert"
+      }
+    },
     "lock": {
-      "stove_lock": {
+      "master_lock": {
         "default": "mdi:stove"
       }
     }

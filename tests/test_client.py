@@ -140,6 +140,30 @@ DEVICE_PAGE_LOCKED_HTML = """
 </html>
 """
 
+DEVICE_PAGE_NIGHT_LOCK_MASTER_OFF_HTML = """
+<!doctype html>
+<html>
+<body>
+  <span class="stove_title">Guest House Stove</span>
+  <span class="stove_status_text">iGuardStove is LOCKED OUT for the night</span>
+  <span class="stove_date">iGuardStove Last Checked In: 5 minutes ago</span>
+  <div class="stove_status_icon"><img class="lock" src="lock.png" /></div>
+  <div class="info_block">
+    <span class="info_title">Potential Fires Prevented</span>
+    <span class="info_value">3</span>
+  </div>
+  <div class="info_block">
+    <span class="info_title">Temperature</span>
+    <span class="info_value">70°F</span>
+  </div>
+  <form id="lock">
+    <input type="hidden" name="csrfmiddlewaretoken" value="form_csrf_token" />
+    <button type="submit" name="lock" value="AABBCCDD1234">Lock</button>
+  </form>
+</body>
+</html>
+"""
+
 
 DEVICE_PAGE_INVALID_TEMP_HTML = """
 <!doctype html>
@@ -454,7 +478,8 @@ def test_parse_device_page_unlocked() -> None:
     data = client._parse_device_page("AABBCCDD1234", DEVICE_PAGE_UNLOCKED_HTML)
     assert data["device_id"] == "AABBCCDD1234"
     assert data["device_name"] == "Guest House Stove"
-    assert data["is_locked"] is False
+    assert data["is_master_locked"] is False
+    assert data["is_lockout_active"] is False
     assert data["status"] == "Stove Off"
     assert data["last_check_in"] == "20 minutes ago"
     assert data["fires_prevented"] == 3
@@ -463,10 +488,11 @@ def test_parse_device_page_unlocked() -> None:
 
 
 def test_parse_device_page_locked() -> None:
-    """Test parsing a device page where the stove is locked."""
+    """Test parsing a device page where Master Lock is engaged."""
     client = IGuardStoveClient.__new__(IGuardStoveClient)
     data = client._parse_device_page("AABBCCDD1234", DEVICE_PAGE_LOCKED_HTML)
-    assert data["is_locked"] is True
+    assert data["is_master_locked"] is True
+    assert data["is_lockout_active"] is True
     assert data["status"] == "Night Lock"
     assert data["last_check_in"] == "5 minutes ago"
 
@@ -501,7 +527,7 @@ def test_parse_device_page_invalid_numbers() -> None:
 
 
 def test_parse_device_page_icon_and_status_fallbacks() -> None:
-    """Test lock state fallback parsing via status icon and status text."""
+    """Test lockout fallback parsing via status icon and status text."""
     icon_html = """
     <html><body>
       <span class="stove_title">Guest House Stove</span>
@@ -510,7 +536,8 @@ def test_parse_device_page_icon_and_status_fallbacks() -> None:
     """
     client = IGuardStoveClient.__new__(IGuardStoveClient)
     data_icon = client._parse_device_page("DEV001", icon_html)
-    assert data_icon["is_locked"] is True
+    assert data_icon["is_lockout_active"] is True
+    assert data_icon["is_master_locked"] is None
 
     status_html = """
     <html><body>
@@ -519,7 +546,8 @@ def test_parse_device_page_icon_and_status_fallbacks() -> None:
     </body></html>
     """
     data_status = client._parse_device_page("DEV001", status_html)
-    assert data_status["is_locked"] is True
+    assert data_status["is_lockout_active"] is True
+    assert data_status["is_master_locked"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +589,75 @@ async def test_async_set_lock_state_idempotent_short_circuit(aresponses) -> None
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
+
+
+@pytest.mark.asyncio
+async def test_async_set_lock_state_night_lock_master_off_lock_posts(
+    aresponses,
+) -> None:
+    """Night Lock with Master Lock off still POSTs when engaging Master Lock."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_NIGHT_LOCK_MASTER_OFF_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
+
+
+@pytest.mark.asyncio
+async def test_async_set_lock_state_night_lock_master_off_unlock_skips(
+    aresponses,
+) -> None:
+    """Unlock during Night Lock with Master Lock already off skips POST."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_NIGHT_LOCK_MASTER_OFF_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
+
+
+@pytest.mark.asyncio
+async def test_async_set_lock_state_unlock_while_night_lock_remains(
+    aresponses,
+) -> None:
+    """Unlock Master Lock succeeds even when Night Lock lockout stays active."""
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "GET",
+        aresponses.Response(text=DEVICE_PAGE_LOCKED_HTML, status=200),
+    )
+    aresponses.add(
+        PORTAL_HOST,
+        "/devices/AABBCCDD1234/",
+        "POST",
+        aresponses.Response(text=DEVICE_PAGE_NIGHT_LOCK_MASTER_OFF_HTML, status=200),
+    )
+
+    async with aiohttp.ClientSession() as session:
+        client = IGuardStoveClient(session, "user@example.com", "secret")
+        await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
+
+    post_data = IGuardStoveClient.__new__(IGuardStoveClient)._parse_device_page(
+        "AABBCCDD1234", DEVICE_PAGE_NIGHT_LOCK_MASTER_OFF_HTML
+    )
+    assert post_data["is_master_locked"] is False
+    assert post_data["is_lockout_active"] is True
 
 
 @pytest.mark.asyncio
@@ -618,7 +715,7 @@ async def test_async_set_lock_state_200_no_state_change(aresponses) -> None:
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         with pytest.raises(
-            CannotConnect, match="Failed to confirm lock state transition"
+            CannotConnect, match="Failed to confirm Master Lock transition"
         ):
             await client.async_set_lock_state("AABBCCDD1234", target_locked=True)
 
@@ -759,7 +856,7 @@ async def test_async_set_lock_state_unlock_post_returns_non_device_page(
     async with aiohttp.ClientSession() as session:
         client = IGuardStoveClient(session, "user@example.com", "secret")
         with pytest.raises(
-            CannotConnect, match="Failed to confirm lock state transition"
+            CannotConnect, match="Failed to confirm Master Lock transition"
         ):
             await client.async_set_lock_state("AABBCCDD1234", target_locked=False)
 

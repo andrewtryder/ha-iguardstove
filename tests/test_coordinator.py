@@ -165,7 +165,7 @@ async def test_dynamic_device_discovery_integration(hass: HomeAssistant) -> None
         assert hass.states.get("sensor.dev2_status") is not None
         registry = er.async_get(hass)
         assert (
-            registry.async_get_entity_id("lock", DOMAIN, "DEV2_stove_lock") is not None
+            registry.async_get_entity_id("lock", DOMAIN, "DEV2_master_lock") is not None
         )
 
 

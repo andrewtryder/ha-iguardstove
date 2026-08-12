@@ -60,13 +60,13 @@ EVENT_TYPE_MAP: dict[str, StoveEventType] = {
 
 @dataclass(frozen=True)
 class LockFormData:
-    """Extracted lock form parameters."""
+    """Extracted lock form parameters for Master Lock control."""
 
     csrf_token: str
     button_name: str
     button_value: str
     action: str | None
-    is_currently_locked: bool
+    is_master_locked: bool
 
 
 def normalize_status(raw: str | None) -> str | None:
@@ -367,8 +367,17 @@ def _find_lock_form(soup: BeautifulSoup) -> Tag | None:
     return None
 
 
-def _parse_lock_form_state(soup: BeautifulSoup) -> bool | None:
-    """Parse lock state from lock/unlock form button if present."""
+def parse_master_lock_state(html_or_soup: str | BeautifulSoup) -> bool | None:
+    """Parse Master Lock state from the lock/unlock form button if present.
+
+    True = Master Lock engaged (form offers Unlock), False = Master Lock off
+    (form offers Lock), None = form missing or unparseable.
+    """
+    soup = (
+        html_or_soup
+        if isinstance(html_or_soup, BeautifulSoup)
+        else BeautifulSoup(html_or_soup, "html.parser")
+    )
     form = _find_lock_form(soup)
 
     button = form.find("button") if form else None
@@ -382,7 +391,7 @@ def _parse_lock_form_state(soup: BeautifulSoup) -> bool | None:
 
 
 def _parse_lock_icon_state(soup: BeautifulSoup) -> bool | None:
-    """Parse lock state from stove status icon container if present."""
+    """Parse lockout state from stove status icon container if present."""
     icon_block = soup.find(class_=SEL_STATUS_ICON)
     if icon_block:
         if icon_block.find("img", class_=SEL_LOCK_IMG):
@@ -427,7 +436,7 @@ AMBIGUOUS_LOCK_TEXT_PATTERNS = (
 def _parse_lock_text_state(
     soup: BeautifulSoup, status: str | None = None
 ) -> bool | None:
-    """Parse lock state from status text element or status string safely."""
+    """Parse effective lockout from status text element or status string safely."""
     status_el = soup.find(class_=SEL_STOVE_STATUS_TEXT)
     raw_status = status_el.get_text(strip=True) if status_el else status
     if not raw_status:
@@ -444,28 +453,33 @@ def _parse_lock_text_state(
     return None
 
 
-def parse_lock_state(
+def parse_lockout_state(
     html_or_soup: str | BeautifulSoup, status: str | None = None
 ) -> bool | None:
-    """Parse lock state (True = locked, False = unlocked, None = unknown/conflict) from device HTML or soup."""
+    """Parse effective stove lockout from status text and/or status icon.
+
+    Master Lock form state is intentionally excluded: Scheduled/Night Lock can
+    lock out the stove while Master Lock remains off (form still offers Lock).
+
+    Returns True when lockout is active, False when inactive, or None when
+    evidence is missing or text/icon conflict.
+    """
     soup = (
         html_or_soup
         if isinstance(html_or_soup, BeautifulSoup)
         else BeautifulSoup(html_or_soup, "html.parser")
     )
 
-    form_state = _parse_lock_form_state(soup)
     icon_state = _parse_lock_icon_state(soup)
     text_state = _parse_lock_text_state(soup, status)
 
-    evidence = {s for s in (form_state, icon_state, text_state) if s is not None}
+    evidence = {s for s in (icon_state, text_state) if s is not None}
     if len(evidence) == 1:
         return next(iter(evidence))
 
     if len(evidence) > 1:
         _LOGGER.warning(
-            "Conflicting lock evidence detected (form=%s, icon=%s, text=%s)",
-            form_state,
+            "Conflicting lockout evidence detected (icon=%s, text=%s)",
             icon_state,
             text_state,
         )
@@ -492,8 +506,9 @@ def parse_device_page(
     data["status_raw"] = raw_status
     data["status"] = normalize_status(raw_status)
 
-    # Lock state
-    data["is_locked"] = parse_lock_state(soup, data.get("status"))
+    # Master Lock (form) vs effective lockout (text/icon) are independent.
+    data["is_master_locked"] = parse_master_lock_state(soup)
+    data["is_lockout_active"] = parse_lockout_state(soup, data.get("status"))
 
     # Last check-in
     checkin_el = soup.find(class_=SEL_STOVE_DATE)
@@ -583,7 +598,7 @@ def parse_lock_form(html: str, device_id: str) -> LockFormData:
     if button_name not in ("lock", "unlock"):
         raise ValueError(f"Unexpected button name {button_name!r} in lock form")
 
-    is_currently_locked = button_name == "unlock"
+    is_master_locked = button_name == "unlock"
     button_value = str(button.get("value", device_id))
 
     action = form.get("action")
@@ -603,5 +618,5 @@ def parse_lock_form(html: str, device_id: str) -> LockFormData:
         button_name=button_name,
         button_value=button_value,
         action=action_str,
-        is_currently_locked=is_currently_locked,
+        is_master_locked=is_master_locked,
     )

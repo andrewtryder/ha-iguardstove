@@ -20,6 +20,7 @@ from .exceptions import DashboardParseError
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.SENSOR,
     Platform.LOCK,
     Platform.EVENT,
@@ -137,8 +138,23 @@ async def async_remove_config_entry_device(
 async def async_migrate_entry(
     hass: HomeAssistant, config_entry: IGuardStoveConfigEntry
 ) -> bool:
-    """Migrate old entry schemas if version changes."""
+    """Migrate old entry schemas and entity registry identities."""
+    from .entity_migration import async_migrate_legacy_stove_lock_entities
+
     _LOGGER.debug(
         "Migrating iGuardStove config entry from version %s", config_entry.version
     )
-    return config_entry.version == 1
+
+    if config_entry.version > 2:
+        return False
+
+    if config_entry.version < 2:
+        await async_migrate_legacy_stove_lock_entities(hass, config_entry)
+        hass.config_entries.async_update_entry(config_entry, version=2)
+        _LOGGER.info(
+            "Migrated iGuardStove config entry %s to version 2 "
+            "(Master Lock unique_id split)",
+            config_entry.entry_id,
+        )
+
+    return True

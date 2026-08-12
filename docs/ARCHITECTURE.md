@@ -12,7 +12,7 @@ This is a Home Assistant custom integration that authenticates against `manage.i
 | `parser.py` | BeautifulSoup HTML parsing and DOM invariants |
 | `coordinator.py` | Polling loop and dynamic discovery via `DataUpdateCoordinator` |
 | `config_flow.py` | UI setup (no YAML required) |
-| `sensor.py` / `lock.py` / `event.py` | Entity platforms |
+| `sensor.py` / `binary_sensor.py` / `lock.py` / `event.py` | Entity platforms |
 
 ## Authentication & data retrieval
 
@@ -28,12 +28,29 @@ This is a Home Assistant custom integration that authenticates against `manage.i
 
 ## Lock control
 
-The portal exposes a single lock **toggle** action (not separate lock/unlock endpoints). The integration must read the current lock state before POSTing so it does not double-flip.
+iGuard distinguishes **Master Lock** (remote on-demand) from **Scheduled / Late Night Lock**. The portal form button reflects Master Lock only. Status text and the status icon reflect whether the stove is effectively locked out (Master Lock, Night Lock, caregiver lock, etc.).
+
+The portal exposes a single Master Lock **toggle** action (not separate lock/unlock endpoints). The integration must read the current form state before POSTing so it does not double-flip. POST confirmation uses the form (Master Lock), not status text/icon.
+
+Home Assistant entities:
+
+- **Master lock** (`lock`, disabled by default): remote Master Lock control.
+- **Stove lockout** (`binary_sensor`, enabled by default): effective lockout (`on` = locked out).
 
 For safety:
 
-- The **Stove Lock** entity is **disabled by default**.
+- The **Master lock** entity is **disabled by default**.
 - **Remote Unlock** is a separate option and also defaults to off.
+- Automations that need “stove is locked out” (including Night Lock) should use the lockout binary sensor or the Status sensor, not the Master lock entity.
+
+### Entity identity (config entry version 2) — breaking migration
+
+| Concept | Platform | Unique ID |
+|---|---|---|
+| Master Lock | `lock` | `{device_id}_master_lock` |
+| Stove Lockout | `binary_sensor` | `{device_id}_stove_lockout` |
+
+**Breaking:** On upgrade from version 1, legacy `lock` entries with unique_id `{device_id}_stove_lock` are **removed** and a new Master Lock registry row is seeded at `{device_id}_master_lock`. Migration is registry/config-entry scoped (not discovery-scoped), so orphaned legacy rows still migrate. Custom `entity_id`s are not preserved. Full replacement guidance: [MIGRATION.md](MIGRATION.md).
 
 ## Activity events
 
