@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.2](https://github.com/andrewtryder/ha-iguardstove/compare/v1.7.1...v1.7.2) (2026-08-12)
+
+
+### Bug Fixes
+
+* relax beautifulsoup4 requirement constraint ([#75](https://github.com/andrewtryder/ha-iguardstove/issues/75)) ([8b4ecac](https://github.com/andrewtryder/ha-iguardstove/commit/8b4ecace191e64ab416047642e5ba32f9288744d))
+* use relative timestamps in event tests ([#70](https://github.com/andrewtryder/ha-iguardstove/issues/70)) ([21a6372](https://github.com/andrewtryder/ha-iguardstove/commit/21a6372f5e0bdf721988be8b44cbbae6e5b52d67))
+
 ## [1.7.1](https://github.com/andrewtryder/ha-iguardstove/compare/v1.7.0...v1.7.1) (2026-07-24)
 
 
