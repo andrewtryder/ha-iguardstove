@@ -36,11 +36,12 @@ Bring your [iGuardStove / iGuardFire](https://www.iguardstove.com) devices into 
 
 > [!WARNING]
 > ### Important Safety Warning
-> This integration can remotely control physical stove lockout hardware.
-> - **Accidental remote activation**: Automating stove lock/unlock with voice assistants (Alexa, Google Assistant, Siri) or other automations carries inherent safety risks.
-> - **Disabled by default**: To reduce accidental use, the entity that can lock/unlock your stove (**Stove Lock**) starts **disabled**. To use remote control, enable it under **Settings → Devices & Services → Entities → Stove Lock → Enable**.
-> - **Separate remote-unlock permission**: Enabling the entity allows remote locking. For safety, **Remote Unlock** stays off by default. To allow unlocking, turn on **Allow remote disengagement of stove lockout (Remote Unlock)** under **Settings → Devices & Services → iGuardStove → Configure**.
-
+> This integration can remotely control physical stove lockout hardware via **Master Lock**.
+> - **Accidental remote activation**: Automating Master Lock lock/unlock with voice assistants (Alexa, Google Assistant, Siri) or other automations carries inherent safety risks.
+> - **Disabled by default**: To reduce accidental use, the entity that can lock/unlock Master Lock (**Master lock**) starts **disabled**. To use remote control, enable it under **Settings → Devices & Services → Entities → Master lock → Enable**.
+> - **Separate remote-unlock permission**: Enabling the entity allows remote locking. For safety, **Remote Unlock** stays off by default. To allow unlocking Master Lock, turn on **Allow remote disengagement of Master Lock (Remote Unlock)** under **Settings → Devices & Services → iGuardStove → Configure**. Remote Unlock does not clear Scheduled/Night Lock.
+> - **Night Lock is separate**: Scheduled/Night Lock can lock out the stove while Master Lock remains off. Use the **Stove lockout** binary sensor (or Status) for “is the stove locked out?”, not the Master lock entity.
+> - **Breaking entity migration**: Upgrades retire the legacy lock unique ID (`…_stove_lock`) and create Master Lock (`…_master_lock`) with a new entity ID. Update automations that referenced the old lock — see [docs/MIGRATION.md](docs/MIGRATION.md).
 ---
 
 ## What you get
@@ -51,7 +52,8 @@ Bring your [iGuardStove / iGuardFire](https://www.iguardstove.com) devices into 
 | **Last Check-In** | How long since the device last contacted the portal (e.g. "24 minutes ago") |
 | **Temperature** | Ambient temperature from the unit (°F or °C per device settings) |
 | **Fires Prevented** | Total shutoff events recorded by the stove |
-| **Stove Lock** | Remote lock/unlock from Home Assistant (opt-in; unlock needs a separate setting) |
+| **Stove Lockout** | Whether the stove is effectively locked out (Master Lock, Night Lock, etc.) |
+| **Master Lock** | Remote Master Lock engage/disengage from Home Assistant (opt-in; unlock needs a separate setting) |
 | **Activity** | Portal activity events you can use for notifications and automations |
 
 All stoves on your account are discovered at setup. New stoves are picked up automatically in the background.
@@ -101,7 +103,7 @@ A **blueprint** is a pre-built automation you can import with one click — no Y
 To preserve the safety model of iGuardStove:
 
 - **No automatic unlocking**: These blueprints only run notifications and actions. They will **never** unlock the stove (e.g. via presence, schedules, or voice).
-- **Manual lock opt-in**: The lock entity remains disabled by default until you enable it.
+- **Manual lock opt-in**: The Master lock entity remains disabled by default until you enable it.
 
 ---
 
@@ -159,7 +161,8 @@ sensor.guest_house_stove_status
 sensor.guest_house_stove_last_check_in
 sensor.guest_house_stove_temperature
 sensor.guest_house_stove_fires_prevented
-lock.guest_house_stove_stove_lock (disabled by default)
+binary_sensor.guest_house_stove_stove_lockout
+lock.guest_house_stove_master_lock (disabled by default; unique_id …_master_lock)
 event.guest_house_stove_activity
 ```
 

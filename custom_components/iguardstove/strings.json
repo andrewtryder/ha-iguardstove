@@ -61,9 +61,14 @@
         "name": "Fires prevented"
       }
     },
+    "binary_sensor": {
+      "stove_lockout": {
+        "name": "Stove lockout"
+      }
+    },
     "lock": {
-      "stove_lock": {
-        "name": "Stove lock"
+      "master_lock": {
+        "name": "Master lock"
       }
     },
     "event": {
@@ -96,13 +101,13 @@
       "init": {
         "title": "iGuardStove Options",
         "data": {
-          "allow_remote_unlock": "Allow remote disengagement of stove lockout (Remote Unlock)",
+          "allow_remote_unlock": "Allow remote disengagement of Master Lock (Remote Unlock)",
           "scan_interval": "Polling interval (seconds)",
           "enable_activity_events": "Emit activity events",
           "rediscover_devices": "Trigger device rediscovery on save"
         },
         "data_description": {
-          "allow_remote_unlock": "Enabling remote unlock allows disengaging physical stove lockouts from Home Assistant controls, automations, and scripts.",
+          "allow_remote_unlock": "Enabling remote unlock allows disengaging Master Lock from Home Assistant controls, automations, and scripts. It does not clear Scheduled/Night Lock; use Status or the Stove lockout binary sensor for effective lockout.",
           "scan_interval": "How often (in seconds) to poll the iGuardStove portal for status updates (30-300 seconds).",
           "enable_activity_events": "When enabled, fire Home Assistant event entities for newly observed activity log entries.",
           "rediscover_devices": "Immediately perform a one-shot device discovery pass to find newly added or reconfigured stoves."

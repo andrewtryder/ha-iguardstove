@@ -19,7 +19,8 @@ DEVICE_DATA_UNLOCKED = {
     "device_name": "Guest House Stove",
     "status": "Stove Off",
     "status_raw": "iGuardStove is off",
-    "is_locked": False,
+    "is_master_locked": False,
+    "is_lockout_active": False,
     "last_check_in": "20 minutes ago",
     "temperature": 72.0,
     "temperature_unit": "°F",
@@ -31,7 +32,8 @@ DEVICE_DATA_LOCKED = {
     "device_name": "Guest House Stove",
     "status": "Night Lock",
     "status_raw": "iGuardStove is LOCKED OUT for the night",
-    "is_locked": True,
+    "is_master_locked": True,
+    "is_lockout_active": True,
     "last_check_in": "5 minutes ago",
     "temperature": 70.0,
     "temperature_unit": "°F",
@@ -75,7 +77,7 @@ async def _setup_integration(
 
         registry = er.async_get(hass)
         entity_id = registry.async_get_entity_id(
-            "lock", DOMAIN, "AABBCCDD1234_stove_lock"
+            "lock", DOMAIN, "AABBCCDD1234_master_lock"
         )
         if entity_id:
             registry.async_update_entity(entity_id, disabled_by=None)
@@ -115,7 +117,7 @@ async def test_lock_entity_disabled_by_default(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     registry = er.async_get(hass)
-    entity_id = registry.async_get_entity_id("lock", DOMAIN, "AABBCCDD1234_stove_lock")
+    entity_id = registry.async_get_entity_id("lock", DOMAIN, "AABBCCDD1234_master_lock")
     assert entity_id is not None
     entity = registry.async_get(entity_id)
     assert entity is not None
@@ -126,7 +128,7 @@ async def test_lock_entity_disabled_by_default(hass: HomeAssistant) -> None:
 async def test_lock_entity_is_unlocked(hass: HomeAssistant) -> None:
     """Test lock entity reports unlocked state correctly."""
     await _setup_integration(hass, DEVICE_DATA_UNLOCKED)
-    state = hass.states.get("lock.guest_house_stove_stove_lock")
+    state = hass.states.get("lock.guest_house_stove_master_lock")
     assert state is not None
     assert state.state == "unlocked"
 
@@ -134,7 +136,7 @@ async def test_lock_entity_is_unlocked(hass: HomeAssistant) -> None:
 async def test_lock_entity_is_locked(hass: HomeAssistant) -> None:
     """Test lock entity reports locked state correctly."""
     await _setup_integration(hass, DEVICE_DATA_LOCKED)
-    state = hass.states.get("lock.guest_house_stove_stove_lock")
+    state = hass.states.get("lock.guest_house_stove_master_lock")
     assert state is not None
     assert state.state == "locked"
 
@@ -151,7 +153,7 @@ async def test_lock_action_calls_async_set_lock_state(hass: HomeAssistant) -> No
         await hass.services.async_call(
             "lock",
             "lock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
         await hass.async_block_till_done()
@@ -167,7 +169,7 @@ async def test_unlock_action_disabled_by_default_raises(hass: HomeAssistant) -> 
         await hass.services.async_call(
             "lock",
             "unlock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
 
@@ -188,7 +190,7 @@ async def test_unlock_action_allowed_when_option_enabled(hass: HomeAssistant) ->
         await hass.services.async_call(
             "lock",
             "unlock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
         await hass.async_block_till_done()
@@ -197,15 +199,16 @@ async def test_unlock_action_allowed_when_option_enabled(hass: HomeAssistant) ->
 
 
 async def test_lock_entity_unavailable_when_indeterminate(hass: HomeAssistant) -> None:
-    """Test lock entity becomes unavailable when lock state is None (indeterminate)."""
+    """Test lock entity becomes unavailable when Master Lock state is None."""
     device_data_indeterminate = {
         "device_id": "AABBCCDD1234",
         "device_name": "Guest House Stove",
         "status": "Lost Communication",
-        "is_locked": None,
+        "is_master_locked": None,
+        "is_lockout_active": None,
     }
     await _setup_integration(hass, device_data_indeterminate)
-    state = hass.states.get("lock.guest_house_stove_stove_lock")
+    state = hass.states.get("lock.guest_house_stove_master_lock")
     assert state is not None
     assert state.state == "unavailable"
 
@@ -226,7 +229,7 @@ async def test_lock_action_cannot_connect_raises_homeassistant_error(
         await hass.services.async_call(
             "lock",
             "lock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
 
@@ -249,7 +252,7 @@ async def test_lock_action_invalid_auth_raises_homeassistant_error(
         await hass.services.async_call(
             "lock",
             "lock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
 
@@ -274,7 +277,7 @@ async def test_unlock_action_cannot_connect_raises_homeassistant_error(
         await hass.services.async_call(
             "lock",
             "unlock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
 
@@ -299,7 +302,7 @@ async def test_unlock_action_invalid_auth_raises_homeassistant_error(
         await hass.services.async_call(
             "lock",
             "unlock",
-            {"entity_id": "lock.guest_house_stove_stove_lock"},
+            {"entity_id": "lock.guest_house_stove_master_lock"},
             blocking=True,
         )
 
@@ -320,6 +323,6 @@ async def test_lock_dynamic_device_added(hass: HomeAssistant) -> None:
 
     registry = er.async_get(hass)
     assert (
-        registry.async_get_entity_id("lock", DOMAIN, "NEWLOCKDEV_stove_lock")
+        registry.async_get_entity_id("lock", DOMAIN, "NEWLOCKDEV_master_lock")
         is not None
     )

@@ -21,9 +21,10 @@ from custom_components.iguardstove.parser import (
     parse_device_page,
     parse_event_table,
     parse_lock_form,
-    parse_lock_state,
+    parse_lockout_state,
     parse_login_csrf,
     parse_login_errors,
+    parse_master_lock_state,
     parse_today_events,
 )
 
@@ -276,7 +277,8 @@ def test_parse_device_page() -> None:
     assert data["device_name"] == "Main Kitchen Stove"
     assert data["status_raw"] == "iGuardStove is off"
     assert data["status"] == "Stove Off"
-    assert data["is_locked"] is False
+    assert data["is_master_locked"] is False
+    assert data["is_lockout_active"] is False
     assert data["last_check_in"] == "10 minutes ago"
     assert data["fires_prevented"] == 5
     assert data["temperature"] == 21.5
@@ -292,7 +294,7 @@ def test_parse_lock_form() -> None:
     assert form_data.button_name == "lock"
     assert form_data.button_value == "AABBCCDD1234"
     assert form_data.action == "/devices/AABBCCDD1234/toggle"
-    assert form_data.is_currently_locked is False
+    assert form_data.is_master_locked is False
 
 
 def test_parse_lock_form_missing() -> None:
@@ -565,7 +567,7 @@ def test_parse_lock_form_unnamed_form_fallback() -> None:
     """
     form_data = parse_lock_form(html, "DEV1")
     assert form_data.csrf_token == "csrftoken123"
-    assert form_data.is_currently_locked is True
+    assert form_data.is_master_locked is True
 
 
 def test_parse_lock_form_validation_errors() -> None:
@@ -604,7 +606,8 @@ def test_parse_device_page_generic_same_origin_200_html() -> None:
         DevicePageParseError, match="Missing core device page invariants"
     ):
         parse_device_page("DEV123", html)
-    assert parse_lock_state(html) is None
+    assert parse_lockout_state(html) is None
+    assert parse_master_lock_state(html) is None
 
 
 def test_parse_device_page_maintenance_page() -> None:
@@ -624,11 +627,12 @@ def test_parse_device_page_maintenance_page() -> None:
         DevicePageParseError, match="Missing core device page invariants"
     ):
         parse_device_page("DEV123", html)
-    assert parse_lock_state(html) is None
+    assert parse_lockout_state(html) is None
+    assert parse_master_lock_state(html) is None
 
 
 def test_parse_device_page_missing_lock_form_and_icon() -> None:
-    """Test lock state returns None when form and icon are missing and status is unrecognized."""
+    """Test lockout returns None when icon is missing and status is unrecognized."""
     html_unrecognized = """
     <!doctype html>
     <html>
@@ -639,9 +643,11 @@ def test_parse_device_page_missing_lock_form_and_icon() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_unrecognized) is None
+    assert parse_lockout_state(html_unrecognized) is None
+    assert parse_master_lock_state(html_unrecognized) is None
     data = parse_device_page("DEV123", html_unrecognized)
-    assert data["is_locked"] is None
+    assert data["is_lockout_active"] is None
+    assert data["is_master_locked"] is None
     assert data["status_raw"] == "Custom portal status"
 
     html_recognized_unlocked = """
@@ -654,13 +660,14 @@ def test_parse_device_page_missing_lock_form_and_icon() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_recognized_unlocked) is False
+    assert parse_lockout_state(html_recognized_unlocked) is False
     data2 = parse_device_page("DEV123", html_recognized_unlocked)
-    assert data2["is_locked"] is False
+    assert data2["is_lockout_active"] is False
+    assert data2["is_master_locked"] is None
 
 
 def test_parse_device_page_changed_status_markup() -> None:
-    """Test lock state parsing when status markup structure is changed or unrecognized."""
+    """Test lockout parsing when status markup structure is changed or unrecognized."""
     html = """
     <!doctype html>
     <html>
@@ -671,9 +678,10 @@ def test_parse_device_page_changed_status_markup() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html) is None
+    assert parse_lockout_state(html) is None
     data = parse_device_page("DEV123", html)
-    assert data["is_locked"] is None
+    assert data["is_lockout_active"] is None
+    assert data["is_master_locked"] is None
 
 
 def test_parse_device_page_auth_page_without_password_element() -> None:
@@ -708,8 +716,8 @@ def test_parse_device_page_auth_page_without_password_element() -> None:
         parse_device_page("DEV123", session_expired_notice)
 
 
-def test_parse_lock_state_all_known_statuses() -> None:
-    """Test parse_lock_state for every status pattern in STATUS_MAP."""
+def test_parse_lockout_state_all_known_statuses() -> None:
+    """Test parse_lockout_state for every status pattern in STATUS_MAP."""
     from custom_components.iguardstove.const import STATUS_MAP
 
     locked_patterns = ("locked", "night lock")
@@ -734,7 +742,7 @@ def test_parse_lock_state_all_known_statuses() -> None:
         </body>
         </html>
         """
-        state = parse_lock_state(html)
+        state = parse_lockout_state(html)
         if any(p in raw.lower() for p in locked_patterns):
             assert state is True, f"Expected True for {raw!r}, got {state}"
         elif any(p in raw.lower() for p in unlocked_patterns):
@@ -746,10 +754,73 @@ def test_parse_lock_state_all_known_statuses() -> None:
             )
 
 
-def test_parse_lock_state_conflicting_evidence() -> None:
-    """Test that conflicting form, icon, and text evidence returns None."""
-    # Form says locked (button name="unlock"), icon says unlocked (class="unlock")
-    html_conflict_form_icon = """
+def test_night_lock_with_master_lock_off_is_not_conflict(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Night Lock text/icon with Lock form button is a valid split, not a conflict."""
+    html = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Guest House Stove</span>
+      <span class="stove_status_text">iGuardStove is LOCKED OUT for the night</span>
+      <div class="stove_status_icon"><img class="lock" src="lock.png" /></div>
+      <form id="lock">
+        <input type="hidden" name="csrfmiddlewaretoken" value="csrf" />
+        <button type="submit" name="lock" value="AABBCCDD1234">Lock</button>
+      </form>
+    </body>
+    </html>
+    """
+    data = parse_device_page("AABBCCDD1234", html)
+    assert data["is_lockout_active"] is True
+    assert data["is_master_locked"] is False
+    assert data["status"] == "Night Lock"
+    assert "Conflicting lockout evidence" not in caplog.text
+    assert "Conflicting lock evidence" not in caplog.text
+
+
+def test_night_lock_without_form_does_not_infer_master_lock() -> None:
+    """Night Lock lockout must not imply Master Lock when the form is missing/malformed."""
+    html_no_form = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Guest House Stove</span>
+      <span class="stove_status_text">iGuardStove is LOCKED OUT for the night</span>
+      <div class="stove_status_icon"><img class="lock" src="lock.png" /></div>
+      <span class="stove_date">iGuardStove Last Checked In: 5 minutes ago</span>
+    </body>
+    </html>
+    """
+    data = parse_device_page("AABBCCDD1234", html_no_form)
+    assert data["is_lockout_active"] is True
+    assert data["is_master_locked"] is None
+    assert data["status"] == "Night Lock"
+
+    html_malformed_button = """
+    <!doctype html>
+    <html>
+    <body>
+      <span class="stove_title">Guest House Stove</span>
+      <span class="stove_status_text">iGuardStove is LOCKED OUT for the night</span>
+      <div class="stove_status_icon"><img class="lock" src="lock.png" /></div>
+      <form id="lock">
+        <input type="hidden" name="csrfmiddlewaretoken" value="csrf" />
+        <button type="submit" name="toggle" value="AABBCCDD1234">Toggle</button>
+      </form>
+    </body>
+    </html>
+    """
+    data_malformed = parse_device_page("AABBCCDD1234", html_malformed_button)
+    assert data_malformed["is_lockout_active"] is True
+    assert data_malformed["is_master_locked"] is None
+
+
+def test_parse_lockout_ignores_form_disagreement() -> None:
+    """Form vs lockout disagreement is legitimate and must not yield None from lockout."""
+    # Form says Master Lock on (Unlock); icon says unlocked
+    html_master_on_icon_off = """
     <!doctype html>
     <html>
     <body>
@@ -758,10 +829,11 @@ def test_parse_lock_state_conflicting_evidence() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_conflict_form_icon) is None
+    assert parse_master_lock_state(html_master_on_icon_off) is True
+    assert parse_lockout_state(html_master_on_icon_off) is False
 
-    # Form says unlocked (button name="lock"), icon says locked (class="lock")
-    html_conflict_form_icon2 = """
+    # Form says Master Lock off (Lock); icon says locked (Night Lock scenario)
+    html_master_off_icon_on = """
     <!doctype html>
     <html>
     <body>
@@ -770,7 +842,8 @@ def test_parse_lock_state_conflicting_evidence() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_conflict_form_icon2) is None
+    assert parse_master_lock_state(html_master_off_icon_on) is False
+    assert parse_lockout_state(html_master_off_icon_on) is True
 
 
 def test_parse_lock_form_suspicious_action_origin() -> None:
@@ -790,10 +863,10 @@ def test_parse_lock_form_suspicious_action_origin() -> None:
         parse_lock_form(html_suspicious_form, "DEV123")
 
 
-def test_parse_lock_state_all_conflicting_combinations() -> None:
-    """Test text vs form conflict, text vs icon conflict, and 3-way conflicting states."""
-    # Text says unlocked ("iGuardStove is off"), form says locked (button name="unlock")
-    html_text_form_conflict = """
+def test_parse_lockout_text_icon_conflict() -> None:
+    """Text vs icon conflict remains unknown; form is independent."""
+    # Text says unlocked ("iGuardStove is off"), form says Master Lock on
+    html_text_form_independent = """
     <!doctype html>
     <html>
     <body>
@@ -802,9 +875,10 @@ def test_parse_lock_state_all_conflicting_combinations() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_text_form_conflict) is None
+    assert parse_lockout_state(html_text_form_independent) is False
+    assert parse_master_lock_state(html_text_form_independent) is True
 
-    # Text says locked ("Night Lock"), icon says unlocked (class="unlock")
+    # Text says locked ("Night Lock"), icon says unlocked
     html_text_icon_conflict = """
     <!doctype html>
     <html>
@@ -814,10 +888,10 @@ def test_parse_lock_state_all_conflicting_combinations() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_text_icon_conflict) is None
+    assert parse_lockout_state(html_text_icon_conflict) is None
 
-    # Form says lock (unlocked), Text says locked ("Night Lock"), Icon says unlocked ("unlock")
-    html_3way_conflict = """
+    # Form Lock + Night Lock text + unlock icon: lockout conflicts, master is off
+    html_3way = """
     <!doctype html>
     <html>
     <body>
@@ -827,7 +901,8 @@ def test_parse_lock_state_all_conflicting_combinations() -> None:
     </body>
     </html>
     """
-    assert parse_lock_state(html_3way_conflict) is None
+    assert parse_lockout_state(html_3way) is None
+    assert parse_master_lock_state(html_3way) is False
 
 
 def test_ambiguous_safety_states_never_return_false() -> None:
@@ -853,16 +928,17 @@ def test_ambiguous_safety_states_never_return_false() -> None:
         </body>
         </html>
         """
-        parsed_lock = parse_lock_state(html)
-        assert parsed_lock is None, (
-            f"Status {raw!r} returned {parsed_lock!r} instead of None"
+        parsed_lockout = parse_lockout_state(html)
+        assert parsed_lockout is None, (
+            f"Status {raw!r} returned {parsed_lockout!r} instead of None"
         )
 
         data = parse_device_page("DEV123", html)
-        assert data["is_locked"] is None, (
-            f"Device data is_locked for {raw!r} returned {data['is_locked']!r} instead of None"
+        assert data["is_lockout_active"] is None, (
+            f"Device data is_lockout_active for {raw!r} returned "
+            f"{data['is_lockout_active']!r} instead of None"
         )
-        assert data["is_locked"] is not False
+        assert data["is_lockout_active"] is not False
 
 
 def test_negative_temps_localized_numbers_and_counters() -> None:

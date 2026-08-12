@@ -1,4 +1,4 @@
-"""Lock platform for iGuardStove."""
+"""Lock platform for iGuardStove Master Lock."""
 
 import logging
 from typing import Any
@@ -28,7 +28,7 @@ async def async_setup_entry(
     entry: IGuardStoveConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up iGuardStove lock entities from a config entry."""
+    """Set up iGuardStove Master Lock entities from a config entry."""
     coordinator = entry.runtime_data.coordinator
     client = entry.runtime_data.client
 
@@ -59,18 +59,19 @@ async def async_setup_entry(
 
 
 class IGuardStoveLock(IGuardStoveEntity, LockEntity):
-    """Lock entity representing the iGuardStove lockout state.
+    """Lock entity representing the iGuardStove Master Lock.
 
-    Locking the entity engages the night-lock / manual lock on the physical
-    device. Unlocking removes it, subject to any schedule configured on the
-    device itself.
+    This entity controls the remote Master Lock toggle on the portal form.
+    It does not represent Scheduled/Night Lock or other schedule-driven
+    lockouts; those are exposed via the Stove lockout binary sensor and the
+    Status sensor.
 
     For safety against unintended remote appliance activation, this write-capable
     entity is disabled by default in the Home Assistant Entity Registry and requires
     explicit user opt-in to enable.
     """
 
-    _attr_translation_key = "stove_lock"
+    _attr_translation_key = "master_lock"
     _attr_entity_registry_enabled_default = False
 
     def __init__(
@@ -79,26 +80,37 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
         client: IGuardStoveClient,
         device_id: str,
     ) -> None:
-        """Initialize the lock entity."""
+        """Initialize the Master Lock entity."""
         super().__init__(coordinator, device_id)
         self._client = client
-        self._attr_unique_id = f"{device_id}_stove_lock"
+        self._attr_unique_id = f"{device_id}_master_lock"
 
     @property
     def available(self) -> bool:
-        """Return True if entity is available and lock state is non-indeterminate."""
+        """Return True if entity is available and Master Lock state is known."""
         return super().available and self.is_locked is not None
 
     @property
     def is_locked(self) -> bool | None:
-        """Return True if the stove is currently locked out."""
+        """Return True if Master Lock is currently engaged."""
         data = self._device_data
         if not data:
             return None
-        return data.get("is_locked")
+        return data.get("is_master_locked")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return related status and lockout for debugging."""
+        data = self._device_data
+        if not data:
+            return None
+        return {
+            "status": data.get("status"),
+            "lockout_active": data.get("is_lockout_active"),
+        }
 
     async def async_lock(self, **kwargs: Any) -> None:
-        """Lock the stove (engage lockout)."""
+        """Engage Master Lock."""
         try:
             await self._client.async_set_lock_state(self.device_id, True)
         except InvalidAuth as err:
@@ -115,7 +127,7 @@ class IGuardStoveLock(IGuardStoveEntity, LockEntity):
         await self.coordinator.async_request_refresh()
 
     async def async_unlock(self, **kwargs: Any) -> None:
-        """Unlock the stove (disengage lockout)."""
+        """Disengage Master Lock."""
         allow_unlock = self.coordinator.config_entry.options.get(
             CONF_ALLOW_REMOTE_UNLOCK, False
         )
