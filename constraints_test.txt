@@ -1,10 +1,10 @@
 # Pinned test environment constraints for reproducible CI builds
 pytest==9.0.3
-pytest-homeassistant-custom-component==0.13.348
+pytest-homeassistant-custom-component==0.13.355
 pytest-cov==7.1.0
 pytest-asyncio==1.4.0
 aresponses==3.0.0
-ruff==0.16.0
+ruff==0.16.2
 mypy==2.3.0
 pre-commit==4.6.1
 beautifulsoup4==4.12.3
