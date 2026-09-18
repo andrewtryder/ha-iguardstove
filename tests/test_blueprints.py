@@ -70,6 +70,30 @@ def test_blueprints_exist_and_are_valid() -> None:
         )
 
 
+def test_overnight_event_blueprint_configuration() -> None:
+    """Test overnight safety events are selectable with the intended defaults."""
+    option_values_by_file: dict[str, set[str]] = {}
+    for filename in ("safety_notification.yaml", "selected_event_actions.yaml"):
+        with open(BLUEPRINTS_DIR / filename, encoding="utf-8") as f:
+            data = yaml.load(f, Loader=BlueprintCustomLoader)
+
+        event_input = data["blueprint"]["input"]["event_types"]
+        options = event_input["selector"]["select"]["options"]
+        option_values_by_file[filename] = {
+            option["value"] for option in options if isinstance(option, dict)
+        }
+
+    for option_values in option_values_by_file.values():
+        assert "stove_left_on_overnight" in option_values
+        assert "left_on_condition_cleared" in option_values
+
+    with open(BLUEPRINTS_DIR / "safety_notification.yaml", encoding="utf-8") as f:
+        safety_data = yaml.load(f, Loader=BlueprintCustomLoader)
+    safety_defaults = safety_data["blueprint"]["input"]["event_types"]["default"]
+    assert "stove_left_on_overnight" in safety_defaults
+    assert "left_on_condition_cleared" not in safety_defaults
+
+
 @pytest.mark.asyncio
 async def test_consecutive_identical_events_trigger_automation_twice(
     hass: HomeAssistant,
