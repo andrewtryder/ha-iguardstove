@@ -330,7 +330,7 @@ async def test_coordinator_validated_empty_removes_final_device(
     assert coordinator.device_ids == []
     assert entry.data.get("devices") == []
     assert device_entry.id not in {
-        d.id for d in dev_reg.devices.values() if entry.entry_id in d.config_entries
+        d.id for d in dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
     }
 
 
@@ -440,9 +440,14 @@ async def test_coordinator_stale_device_reconciliation_including_final_device(
     # Pass 2: DEV1 missing again; this config entry is detached (device may be deleted)
     await coordinator._async_discover_devices(now)
     assert "DEV1" not in coordinator.device_ids
-    remaining_dev1 = dev_reg.async_get_device(identifiers={(DOMAIN, "DEV1")})
+    remaining_dev1 = dev_reg.async_get_device_by_identifier(
+        (DOMAIN, "DEV1"), entry.entry_id
+    )
     assert remaining_dev1 is None or entry.entry_id not in remaining_dev1.config_entries
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, "DEV2")}) is not None
+    assert (
+        dev_reg.async_get_device_by_identifier((DOMAIN, "DEV2"), entry.entry_id)
+        is not None
+    )
 
 
 @pytest.mark.asyncio
