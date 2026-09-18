@@ -514,7 +514,9 @@ async def test_remove_active_device_refused(hass: HomeAssistant) -> None:
     assert "AABBCCDD1234" not in coordinator.data.errors
 
     dev_reg = dr.async_get(hass)
-    device_entry = dev_reg.async_get_device(identifiers={(DOMAIN, "AABBCCDD1234")})
+    device_entry = dev_reg.async_get_device_by_identifier(
+        (DOMAIN, "AABBCCDD1234"), entry.entry_id
+    )
     assert device_entry is not None
     assert await async_remove_config_entry_device(hass, entry, device_entry) is False
     assert any(d["device_id"] == "AABBCCDD1234" for d in entry.data["devices"])
@@ -556,7 +558,9 @@ async def test_remove_unavailable_device_cleans_persisted_state(
     entry.runtime_data.event_store = store
 
     dev_reg = dr.async_get(hass)
-    device_entry = dev_reg.async_get_device(identifiers={(DOMAIN, "AABBCCDD1234")})
+    device_entry = dev_reg.async_get_device_by_identifier(
+        (DOMAIN, "AABBCCDD1234"), entry.entry_id
+    )
     assert device_entry is not None
     assert await async_remove_config_entry_device(hass, entry, device_entry) is True
     assert "AABBCCDD1234" not in coordinator.device_ids
