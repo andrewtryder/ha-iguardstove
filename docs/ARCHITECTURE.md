@@ -67,6 +67,8 @@ Events are parsed from the "Today's Events" table on the same device detail HTML
 | `stove_off` | Stove Turned OFF |
 | `motion_auto_resumed` | Motion Auto Resumed |
 | `auto_shut_off` | Auto Shut Off / Shut Off |
+| `stove_left_on_overnight` | Stove Left on Overnight |
+| `left_on_condition_cleared` | Left On Condition Cleared |
 | `emergency_button` | Emergency Button Pressed |
 | `temperature_alert` | Temperature Alert |
 | `lost_communication` | Lost Communication |

@@ -50,6 +50,8 @@ EVENT_TYPE_MAP: dict[str, StoveEventType] = {
     "motion auto resumed": StoveEventType.MOTION_AUTO_RESUMED,
     "auto shut off": StoveEventType.AUTO_SHUT_OFF,
     "shut off": StoveEventType.AUTO_SHUT_OFF,
+    "stove left on overnight": StoveEventType.STOVE_LEFT_ON_OVERNIGHT,
+    "left on condition cleared": StoveEventType.LEFT_ON_CONDITION_CLEARED,
     "emergency button pressed": StoveEventType.EMERGENCY_BUTTON,
     "temperature alert": StoveEventType.TEMPERATURE_ALERT,
     "lost communication": StoveEventType.LOST_COMMUNICATION,

@@ -40,6 +40,7 @@ blueprint:
       description: Select which safety event types trigger notifications.
       default:
         - auto_shut_off
+        - stove_left_on_overnight
         - emergency_button
         - temperature_alert
         - lost_communication
@@ -49,6 +50,10 @@ blueprint:
           options:
             - label: Automatic Shut Off
               value: auto_shut_off
+            - label: Stove Left On Overnight
+              value: stove_left_on_overnight
+            - label: Left-On Condition Cleared
+              value: left_on_condition_cleared
             - label: Emergency Button Pressed
               value: emergency_button
             - label: High Temperature Alert

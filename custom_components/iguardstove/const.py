@@ -59,6 +59,7 @@ STATUS_MAP: dict[str, str] = {
     "shut off due to inactivity": "Auto Shut Off",
     "automatically shut off": "Auto Shut Off",
     # Alert / problem states
+    "left on during the night": "Stove Left On Overnight",
     "emergency": "Emergency",
     "temperature alert": "Temperature Alert",
     "lost communication": "Lost Communication",

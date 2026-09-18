@@ -71,6 +71,8 @@ Supported events include:
 - Stove Turned On / Off
 - Motion Auto Resumed
 - Auto Shut Off
+- Stove Left On Overnight
+- Left-On Condition Cleared
 - Emergency Button Pressed
 - Temperature Alert
 - Lost Communication

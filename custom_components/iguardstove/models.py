@@ -19,6 +19,8 @@ class StoveEventType(StrEnum):
     STOVE_OFF = "stove_off"
     MOTION_AUTO_RESUMED = "motion_auto_resumed"
     AUTO_SHUT_OFF = "auto_shut_off"
+    STOVE_LEFT_ON_OVERNIGHT = "stove_left_on_overnight"
+    LEFT_ON_CONDITION_CLEARED = "left_on_condition_cleared"
     EMERGENCY_BUTTON = "emergency_button"
     TEMPERATURE_ALERT = "temperature_alert"
     LOST_COMMUNICATION = "lost_communication"
