@@ -84,6 +84,8 @@
               "stove_off": "Stove turned off",
               "motion_auto_resumed": "Motion auto resumed",
               "auto_shut_off": "Auto shut off",
+              "stove_left_on_overnight": "Stove left on overnight",
+              "left_on_condition_cleared": "Left-on condition cleared",
               "emergency_button": "Emergency button pressed",
               "temperature_alert": "Temperature alert",
               "lost_communication": "Lost communication",
