@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/andrewtryder/ha-iguardstove/compare/v2.0.0...v2.1.0) (2026-09-18)
+
+
+### Features
+
+* support overnight left-on events ([#96](https://github.com/andrewtryder/ha-iguardstove/issues/96)) ([1b6a632](https://github.com/andrewtryder/ha-iguardstove/commit/1b6a6328f70c250ec3e2d69cd432df2b1b8582eb))
+
 ## [2.0.0](https://github.com/andrewtryder/ha-iguardstove/compare/v1.7.2...v2.0.0) (2026-08-12)
 
 
