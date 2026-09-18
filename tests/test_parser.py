@@ -303,6 +303,12 @@ def test_parse_lock_form_missing() -> None:
         parse_lock_form(DEVICE_PAGE_NO_FORM_HTML, "AABBCCDD1234")
 
 
+def test_normalize_status_left_on_overnight() -> None:
+    """Test the observed overnight left-on portal status is normalized."""
+    raw = "iGuardStove was left on during the night"
+    assert normalize_status(raw) == "Stove Left On Overnight"
+
+
 def test_normalize_status_unknown() -> None:
     """Test normalize_status falls back to raw text for unknown status."""
     raw = "unheard of status text"
