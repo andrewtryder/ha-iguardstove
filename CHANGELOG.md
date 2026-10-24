@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2](https://github.com/andrewtryder/ha-iguardstove/compare/v2.1.1...v2.1.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* use probatio schemas for config and options flows ([#115](https://github.com/andrewtryder/ha-iguardstove/issues/115)) ([850c143](https://github.com/andrewtryder/ha-iguardstove/commit/850c1438c54ab92000c1fcd45640bb6b88a02a16))
+
 ## [2.1.1](https://github.com/andrewtryder/ha-iguardstove/compare/v2.1.0...v2.1.1) (2026-10-24)
 
 
