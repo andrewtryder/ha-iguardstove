@@ -140,6 +140,107 @@ def has_password_input(html: str) -> bool:
     return soup.find("input", {"type": "password"}) is not None
 
 
+def _device_id_from_href(href: str) -> str | None:
+    """Return a portal device id from a same-origin device URL, else None."""
+    href = href.strip()
+    # Reject absolute/cross-origin URLs, queries, and fragments as identifiers.
+    if (
+        "://" in href
+        or href.startswith("//")
+        or "?" in href
+        or "#" in href
+        or ".." in href
+    ):
+        return None
+    match = DEVICE_URL_RE.match(href)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _stove_title_name(title_el: Tag) -> str:
+    """Return the stove name without nested owner or label text.
+
+    A real name such as "Guest House Stove" is kept. Nested labels, including
+    `.stove_owner`, are not concatenated onto that name.
+    """
+    title = BeautifulSoup(str(title_el), "html.parser")
+    cloned = title.find(class_=SEL_STOVE_TITLE)
+    if not isinstance(cloned, Tag):
+        return title_el.get_text(strip=True)
+    for extra in list(cloned.find_all(class_="stove_owner")):
+        extra.extract()
+
+    direct = [
+        child.strip()
+        for child in cloned.children
+        if isinstance(child, str) and child.strip()
+    ]
+    if direct:
+        return direct[0]
+
+    for child in cloned.children:
+        if not isinstance(child, Tag):
+            continue
+        text = child.get_text(strip=True)
+        if text:
+            return text
+    return cloned.get_text(strip=True)
+
+
+def _name_from_stove_row(row: Tag) -> str:
+    """Return the display name for a dashboard stove row."""
+    title_el = row.find(class_=SEL_STOVE_TITLE)
+    if isinstance(title_el, Tag):
+        name = _stove_title_name(title_el)
+        if name:
+            return name
+    return "iGuardStove"
+
+
+def _append_unique_device(
+    devices: list[DeviceSummary],
+    seen_device_ids: set[str],
+    device_id: str,
+    device_name: str,
+) -> None:
+    """Append a device once, preserving the first id and name seen."""
+    if device_id in seen_device_ids:
+        return
+    seen_device_ids.add(device_id)
+    devices.append({"device_id": device_id, "device_name": device_name})
+
+
+def _devices_from_stove_rows(rows: list[Tag]) -> list[DeviceSummary]:
+    """Register one device per stove row, using that row's first valid link."""
+    devices: list[DeviceSummary] = []
+    seen_device_ids: set[str] = set()
+    for row in rows:
+        for link in row.find_all("a", href=True):
+            device_id = _device_id_from_href(str(link.get("href", "")))
+            if device_id is None:
+                continue
+            _append_unique_device(
+                devices, seen_device_ids, device_id, _name_from_stove_row(row)
+            )
+            break
+    return devices
+
+
+def _devices_from_page_links(soup: BeautifulSoup) -> list[DeviceSummary]:
+    """Register devices from every valid device link on a page with no stove rows."""
+    devices: list[DeviceSummary] = []
+    seen_device_ids: set[str] = set()
+    for link in soup.find_all("a", href=True):
+        if not isinstance(link, Tag):
+            continue
+        device_id = _device_id_from_href(str(link.get("href", "")))
+        if device_id is None:
+            continue
+        _append_unique_device(devices, seen_device_ids, device_id, "iGuardStove")
+    return devices
+
+
 def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
     """Parse device links from account dashboard HTML."""
     soup = BeautifulSoup(html, "html.parser")
@@ -154,32 +255,15 @@ def parse_dashboard_devices(html: str) -> list[DeviceSummary]:
     ):
         raise InvalidAuth("Auth or login page returned instead of account dashboard")
 
-    devices: list[DeviceSummary] = []
-    seen_device_ids: set[str] = set()
-
-    for link in soup.find_all("a", href=True):
-        href: str = str(link["href"]).strip()
-        # Reject absolute/cross-origin URLs, queries, and fragments as identifiers.
-        if (
-            "://" in href
-            or href.startswith("//")
-            or "?" in href
-            or "#" in href
-            or ".." in href
-        ):
-            continue
-        m = DEVICE_URL_RE.match(href)
-        if m:
-            device_id = m.group(1)
-            parent = link.find_parent(class_="stove_line")
-            name = "iGuardStove"
-            if parent:
-                title_el = parent.find(class_=SEL_STOVE_TITLE)
-                if title_el:
-                    name = title_el.get_text(strip=True)
-            if device_id not in seen_device_ids:
-                seen_device_ids.add(device_id)
-                devices.append({"device_id": device_id, "device_name": name})
+    stove_rows = [
+        row for row in soup.find_all(class_="stove_line") if isinstance(row, Tag)
+    ]
+    if stove_rows:
+        # A stove list is authoritative. Ignore other /devices/<hex>/ links,
+        # including short paths such as /devices/add/.
+        devices = _devices_from_stove_rows(stove_rows)
+    else:
+        devices = _devices_from_page_links(soup)
 
     if devices:
         return devices
@@ -499,7 +583,9 @@ def parse_device_page(
     soup = BeautifulSoup(html, "html.parser")
     validate_device_page_invariants(soup, device_id)
     title_el = soup.find(class_=SEL_STOVE_TITLE)
-    device_name = title_el.get_text(strip=True) if title_el else "iGuardStove"
+    device_name = (
+        _stove_title_name(title_el) if isinstance(title_el, Tag) else ""
+    ) or "iGuardStove"
     data: DeviceData = {"device_id": device_id, "device_name": device_name}
 
     # Status
