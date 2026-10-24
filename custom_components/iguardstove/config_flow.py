@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -26,10 +26,10 @@ from .exceptions import DashboardParseError
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_USER_DATA_SCHEMA = vol.Schema(
+STEP_USER_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
+        probatio.Required(CONF_USERNAME): str,
+        probatio.Required(CONF_PASSWORD): str,
     }
 )
 
@@ -150,7 +150,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                 )
 
-        schema = vol.Schema({vol.Required(CONF_PASSWORD): str})
+        schema = probatio.Schema({probatio.Required(CONF_PASSWORD): str})
         username = reauth_entry.data[CONF_USERNAME] if reauth_entry else ""
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -193,7 +193,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     },
                 )
 
-        schema = vol.Schema({vol.Required(CONF_PASSWORD): str})
+        schema = probatio.Schema({probatio.Required(CONF_PASSWORD): str})
 
         return self.async_show_form(
             step_id="reconfigure",
@@ -255,26 +255,26 @@ class IGuardStoveOptionsFlowHandler(OptionsFlowWithReload):
             if not errors:
                 return self.async_create_entry(title="", data=durable)
 
-        schema = vol.Schema(
+        schema = probatio.Schema(
             {
-                vol.Optional(
+                probatio.Optional(
                     CONF_ALLOW_REMOTE_UNLOCK,
                     default=current_options.get(CONF_ALLOW_REMOTE_UNLOCK, False),
                 ): bool,
-                vol.Optional(
+                probatio.Optional(
                     CONF_SCAN_INTERVAL,
                     default=current_options.get(
                         CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                     ),
-                ): vol.All(
-                    vol.Coerce(int),
-                    vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ): probatio.All(
+                    probatio.Coerce(int),
+                    probatio.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                 ),
-                vol.Optional(
+                probatio.Optional(
                     CONF_ENABLE_ACTIVITY_EVENTS,
                     default=current_options.get(CONF_ENABLE_ACTIVITY_EVENTS, True),
                 ): bool,
-                vol.Optional(
+                probatio.Optional(
                     CONF_REDISCOVER_DEVICES,
                     default=False,
                 ): bool,

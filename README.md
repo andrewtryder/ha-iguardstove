@@ -113,7 +113,7 @@ To preserve the safety model of iGuardStove:
 
 - An active iGuardFire account
 - At least one iGuardStove visible in the iGuardFire management portal
-- Home Assistant 2026.3.0 or newer
+- Home Assistant 2026.9.0 or newer
 - Internet access from Home Assistant to `manage.iguardfire.com`
 
 > [!NOTE]
