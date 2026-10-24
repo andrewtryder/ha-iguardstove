@@ -156,6 +156,36 @@ def test_parse_dashboard_devices() -> None:
     assert devices[1] == {"device_id": "EEFF00112233", "device_name": "iGuardStove"}
 
 
+def test_parse_dashboard_devices_one_device_per_stove_row() -> None:
+    """A stove row plus a stray device link is one stove, without nested labels."""
+    html = """
+    <html><body>
+      <div class="stove_line">
+        <div class="stove_title">iGuardStove <span class="stove_owner">Stove</span></div>
+        <a href="/devices/AABBCCDD1234/">View</a>
+        <a href="/devices/EEFF00112233/">History</a>
+      </div>
+      <a href="/devices/add/">Add a Device</a>
+    </body></html>
+    """
+    assert parse_dashboard_devices(html) == [
+        {"device_id": "AABBCCDD1234", "device_name": "iGuardStove"}
+    ]
+
+
+def test_parse_dashboard_devices_without_stove_rows_keeps_link_scan() -> None:
+    """Pages with no stove rows still discover valid device links."""
+    html = """
+    <html><body>
+      <a href="/devices/AABBCCDD1234/">View</a>
+      <a href="/account/logout/">Logout</a>
+    </body></html>
+    """
+    assert parse_dashboard_devices(html) == [
+        {"device_id": "AABBCCDD1234", "device_name": "iGuardStove"}
+    ]
+
+
 def test_parse_dashboard_devices_identifier_variants() -> None:
     """Accept lowercase and hyphenated hex IDs; preserve portal casing."""
     html = """
@@ -268,6 +298,26 @@ def test_parse_dashboard_devices_auth_page_raises_error() -> None:
     """Test parsing login/auth page raises InvalidAuth."""
     with pytest.raises(InvalidAuth):
         parse_dashboard_devices(LOGIN_PAGE_HTML)
+
+
+def test_parse_device_page_ignores_nested_owner_label() -> None:
+    """Device page names keep a real Stove suffix and drop nested owner text."""
+    html = """
+    <html><body>
+      <span class="stove_title">Guest House Stove <span class="stove_owner">Stove</span></span>
+      <span class="stove_status_text">iGuardStove is off</span>
+    </body></html>
+    """
+    data = parse_device_page("AABBCCDD1234", html)
+    assert data["device_name"] == "Guest House Stove"
+
+    wrapped = """
+    <html><body>
+      <div class="stove_title"><a href="/devices/AABBCCDD1234/">iGuardStove</a><span>Stove</span></div>
+      <span class="stove_status_text">iGuardStove is off</span>
+    </body></html>
+    """
+    assert parse_device_page("AABBCCDD1234", wrapped)["device_name"] == "iGuardStove"
 
 
 def test_parse_device_page() -> None:

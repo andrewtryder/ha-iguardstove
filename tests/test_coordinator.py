@@ -437,13 +437,12 @@ async def test_coordinator_stale_device_reconciliation_including_final_device(
     await coordinator._async_discover_devices(now)
     assert "DEV1" in coordinator.device_ids
 
-    # Pass 2: DEV1 missing again; this config entry is detached (device may be deleted)
+    # Pass 2: DEV1 missing again; the device is removed from the registry
     await coordinator._async_discover_devices(now)
     assert "DEV1" not in coordinator.device_ids
-    remaining_dev1 = dev_reg.async_get_device_by_identifier(
-        (DOMAIN, "DEV1"), entry.entry_id
+    assert (
+        dev_reg.async_get_device_by_identifier((DOMAIN, "DEV1"), entry.entry_id) is None
     )
-    assert remaining_dev1 is None or entry.entry_id not in remaining_dev1.config_entries
     assert (
         dev_reg.async_get_device_by_identifier((DOMAIN, "DEV2"), entry.entry_id)
         is not None
