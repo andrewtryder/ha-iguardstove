@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/andrewtryder/ha-iguardstove/compare/v2.1.0...v2.1.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* drop duplicate stove devices and the registry deprecation ([#113](https://github.com/andrewtryder/ha-iguardstove/issues/113)) ([13b727f](https://github.com/andrewtryder/ha-iguardstove/commit/13b727f60b21d62c03b5ef2773085858981f33fa))
+
 ## [2.1.0](https://github.com/andrewtryder/ha-iguardstove/compare/v2.0.0...v2.1.0) (2026-09-18)
 
 
