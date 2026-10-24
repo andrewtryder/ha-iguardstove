@@ -167,7 +167,7 @@ def _stove_title_name(title_el: Tag) -> str:
     title = BeautifulSoup(str(title_el), "html.parser")
     cloned = title.find(class_=SEL_STOVE_TITLE)
     if not isinstance(cloned, Tag):
-        return title_el.get_text(strip=True)
+        return str(title_el.get_text(strip=True))
     for extra in list(cloned.find_all(class_="stove_owner")):
         extra.extract()
 
@@ -182,10 +182,10 @@ def _stove_title_name(title_el: Tag) -> str:
     for child in cloned.children:
         if not isinstance(child, Tag):
             continue
-        text = child.get_text(strip=True)
+        text = str(child.get_text(strip=True))
         if text:
             return text
-    return cloned.get_text(strip=True)
+    return str(cloned.get_text(strip=True))
 
 
 def _name_from_stove_row(row: Tag) -> str:

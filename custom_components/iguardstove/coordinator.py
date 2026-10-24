@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -143,7 +143,10 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         entry_id = self.config_entry.entry_id
         lookup = getattr(dev_reg, "async_get_device_by_identifier", None)
         if lookup is not None:
-            return lookup((DOMAIN, device_id), entry_id)
+            return cast(
+                "dr.DeviceEntry | None",
+                lookup((DOMAIN, device_id), entry_id),
+            )
         return dev_reg.async_get_device(identifiers={(DOMAIN, device_id)})
 
     def _reconcile_stale_devices(
