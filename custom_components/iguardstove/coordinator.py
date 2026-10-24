@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -98,7 +98,7 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         )
 
     def _remove_devices_from_registry(self, device_ids: list[str]) -> None:
-        """Detach this config entry from stale devices and drop local state."""
+        """Remove stale devices from the registry and drop local state."""
         if not device_ids:
             return
         _LOGGER.info(
@@ -125,12 +125,29 @@ class IGuardStoveDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
             if event_store is not None:
                 event_store.clear_device(did)
 
-            device_entry = dev_reg.async_get_device(identifiers={(DOMAIN, did)})
-            if device_entry and hasattr(self, "config_entry") and self.config_entry:
-                dev_reg.async_update_device(
-                    device_entry.id,
-                    remove_config_entry_id=self.config_entry.entry_id,
-                )
+            device_entry = self._device_entry_for_removal(dev_reg, did)
+            if device_entry is not None:
+                dev_reg.async_remove_device(device_entry.id)
+
+    def _device_entry_for_removal(
+        self, dev_reg: dr.DeviceRegistry, device_id: str
+    ) -> dr.DeviceEntry | None:
+        """Return this entry's device for device_id, if the registry has one.
+
+        Home Assistant 2026.8+ looks devices up per config entry. Older cores
+        only have the global lookup; use that solely when the scoped helper is
+        missing so current cores do not call the deprecated API.
+        """
+        if not hasattr(self, "config_entry") or self.config_entry is None:
+            return None
+        entry_id = self.config_entry.entry_id
+        lookup = getattr(dev_reg, "async_get_device_by_identifier", None)
+        if lookup is not None:
+            return cast(
+                "dr.DeviceEntry | None",
+                lookup((DOMAIN, device_id), entry_id),
+            )
+        return dev_reg.async_get_device(identifiers={(DOMAIN, device_id)})
 
     def _reconcile_stale_devices(
         self, discovered: list[DeviceSummary], discovered_ids: set[str]
