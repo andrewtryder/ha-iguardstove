@@ -7,16 +7,16 @@ Thank you for considering contributing to the **iGuardStove** custom integration
 ## Local Setup
 
 ### 1. Initialize Virtual Environment
-It is highly recommended to isolate your dependencies using a virtual environment:
+Install uv and Python 3.14.2 or newer, then create and sync the environment:
 ```bash
-# Create virtual environment
-python3 -m venv .venv
-
-# Activate it (on MacOS/Linux)
+uv venv --python 3.14 .venv
+uv pip sync --python .venv/bin/python requirements_test.lock
 source .venv/bin/activate
+```
 
-# Install requirements
-pip install -r requirements.txt -r requirements_test.txt
+After changing the requirements or constraints, regenerate the lock with:
+```bash
+uv pip compile --python-version 3.14.2 --universal -c constraints_test.txt requirements.txt requirements_test.txt -o requirements_test.lock
 ```
 
 ### 2. Configure Git Hooks (pre-commit)

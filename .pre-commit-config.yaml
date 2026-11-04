@@ -28,7 +28,7 @@ repos:
 
       - id: pytest-cov
         name: Run pytest test suite with coverage
-        entry: python -m pytest --cov=custom_components/iguardstove --cov-fail-under=95
+        entry: python -m pytest --disable-socket --allow-unix-socket --cov=custom_components/iguardstove --cov-fail-under=95
         language: system
         pass_filenames: false
         always_run: true
