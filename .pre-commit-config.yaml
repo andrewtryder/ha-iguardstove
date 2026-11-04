@@ -5,7 +5,9 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        args: [--unsafe]
       - id: check-json
+      - id: check-merge-conflict
       - id: check-added-large-files
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -26,7 +28,7 @@ repos:
 
       - id: pytest-cov
         name: Run pytest test suite with coverage
-        entry: python -m pytest --cov=custom_components/iguardstove --cov-fail-under=95
+        entry: python -m pytest --disable-socket --allow-unix-socket --cov=custom_components/iguardstove --cov-fail-under=95
         language: system
         pass_filenames: false
         always_run: true
