@@ -29,6 +29,12 @@ pre-commit install
 
 ## Validation & Code Quality
 
+The portfolio standard validation interface executes the entire local test, compilation, linting, typing, and hygiene contract:
+
+```bash
+./scripts/validate-local.sh
+```
+
 Before pushing code or opening a pull request, run the following automated checks locally:
 
 ### 1. Code Formatting and Linting
@@ -65,4 +71,3 @@ docker run --rm -v "$(pwd)/custom_components:/github/workspace/custom_components
 1. **Conventional Commits**: PR titles and commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/) (e.g., `feat(event): ...`, `fix: ...`, `chore: ...`).
 2. **Version Management**: **Never** manually edit version numbers or bump versions in `manifest.json`, `.release-please-manifest.json`, `CHANGELOG.md`, or Git tags in feature PRs.
 3. **Automated Releases**: Version updates, release PRs, tags, and changelog management are handled exclusively by **Release Please**.
-
