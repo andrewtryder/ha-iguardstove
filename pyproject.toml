@@ -11,7 +11,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "aresponses==3.0.0",
-    "beautifulsoup4==4.12.3",
+    "beautifulsoup4==4.15.0",
     "mypy==2.4.1",
     "pre-commit==4.7.0",
     "pytest==9.0.3",
