@@ -26,29 +26,38 @@ jobs:
           python-version: "3.14"
           allow-prereleases: true
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements_test.lock
+
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt -r requirements_test.txt -c constraints_test.txt
+          uv venv --python 3.14 .venv
+          uv pip sync --python .venv/bin/python requirements_test.lock
 
       - name: Verify Python syntax compilation
-        run: python -m compileall custom_components tests
+        run: .venv/bin/python -m compileall custom_components tests
 
       - name: Run tests with coverage
         run: >
-          pytest
+          .venv/bin/pytest
+          --disable-socket
+          --allow-unix-socket
           --cov=custom_components/iguardstove
           --cov-report=term-missing
           --cov-report=xml
           --cov-fail-under=95
 
       - name: Ruff lint
-        run: ruff check .
+        run: .venv/bin/ruff check .
 
       - name: Ruff format
-        run: ruff format --check .
+        run: .venv/bin/ruff format --check .
 
       - name: Run mypy strict type check
-        run: mypy custom_components tests
+        run: .venv/bin/mypy custom_components tests
 
   validate-hacs:
     runs-on: ubuntu-latest
