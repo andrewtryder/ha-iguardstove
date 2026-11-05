@@ -15,8 +15,6 @@ from custom_components.iguardstove.client import (
 )
 from custom_components.iguardstove.const import USER_AGENT
 
-pytestmark = pytest.mark.enable_socket
-
 PORTAL_HOST = "manage.iguardfire.com"
 LOGIN_PATH_RE = re.compile(r"/account/login/.*")
 
