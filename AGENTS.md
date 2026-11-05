@@ -25,9 +25,7 @@ When you are asked to write code, modify files, or run tests, you **must** use t
 ### Environment Setup
 You must run tests and linters inside a virtual environment to ensure dependencies (`aiohttp`, `BeautifulSoup`, `pytest`, `pytest-homeassistant-custom-component`, etc.) are resolved correctly.
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt -r requirements_test.txt
+uv sync --locked
 ```
 
 ### Code Formatting & Linting

@@ -1,3 +1,30 @@
+[project]
+name = "ha-iguardstove"
+version = "0.0.0"
+description = "Home Assistant custom integration for iGuardStove / iGuardFire devices"
+readme = "README.md"
+requires-python = ">=3.14.2"
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+]
+
+[dependency-groups]
+dev = [
+    "aresponses==3.0.0",
+    "beautifulsoup4==4.12.3",
+    "mypy==2.4.0",
+    "pre-commit==4.7.0",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "pytest-homeassistant-custom-component==0.13.373",
+    "pytest-socket==0.8.1",
+    "ruff==0.17.1",
+]
+
+[tool.uv]
+package = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

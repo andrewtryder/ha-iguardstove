@@ -38,32 +38,31 @@ finish() {
 }
 trap finish EXIT
 
-echo "==> [1/7] Verifying toolchain and interpreter"
+echo "==> [1/8] Verifying toolchain and interpreter"
 command -v uv >/dev/null 2>&1 || { echo "Error: uv is required but not installed" >&2; exit 1; }
-if [[ ! -x .venv/bin/python ]]; then
-    uv venv --python 3.14 .venv
-fi
-.venv/bin/python -c 'import sys; assert sys.version_info >= (3, 14, 2), "Python 3.14.2 or newer is required"; print(sys.version)'
-uv pip sync --python .venv/bin/python requirements_test.lock
-export PATH="$REPO_ROOT/.venv/bin:$PATH"
+uv sync --locked
+uv run --locked python -c 'import sys; assert sys.version_info >= (3, 14, 2), "Python 3.14.2 or newer is required"; print(sys.version)'
 
-echo "==> [2/7] Running pre-commit hooks on all files"
-pre-commit run --all-files
+echo "==> [2/8] Verifying dependency lockfile freshness"
+uv lock --check
 
-echo "==> [3/7] Compiling Python source files"
-python -m compileall -q custom_components tests
+echo "==> [3/8] Running pre-commit hooks on all files"
+uv run --locked pre-commit run --all-files
 
-echo "==> [4/7] Running Ruff lint and formatting checks"
-ruff check .
-ruff format --check .
+echo "==> [4/8] Compiling Python source files"
+uv run --locked python -m compileall -q custom_components tests
 
-echo "==> [5/7] Running Mypy strict type checks"
-mypy custom_components tests
+echo "==> [5/8] Running Ruff lint and formatting checks"
+uv run --locked ruff check .
+uv run --locked ruff format --check .
 
-echo "==> [6/7] Running Python test suite with offline safety isolation (>=95% coverage)"
-pytest --disable-socket --allow-unix-socket
+echo "==> [6/8] Running Mypy strict type checks"
+uv run --locked mypy custom_components tests
 
-echo "==> [7/7] Checking for changes made by validation"
+echo "==> [7/8] Running Python test suite with offline safety isolation (>=95% coverage)"
+uv run --locked pytest --disable-socket --allow-unix-socket
+
+echo "==> [8/8] Checking for changes made by validation"
 check_changes
 
 echo "==> Local validation passed successfully!"
