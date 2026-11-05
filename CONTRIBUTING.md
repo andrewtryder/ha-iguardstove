@@ -7,17 +7,12 @@ Thank you for considering contributing to the **iGuardStove** custom integration
 ## Local Setup
 
 ### 1. Initialize Virtual Environment
-Install uv and Python 3.14.2 or newer, then create and sync the environment:
+Install uv and Python 3.14.2 or newer, then sync the environment:
 ```bash
-uv venv --python 3.14 .venv
-uv pip sync --python .venv/bin/python requirements_test.lock
-source .venv/bin/activate
+uv sync --locked
 ```
 
-After changing the requirements or constraints, regenerate the lock with:
-```bash
-uv pip compile --python-version 3.14.2 --universal -c constraints_test.txt requirements.txt requirements_test.txt -o requirements_test.lock
-```
+Dependencies and development tools are declared in `pyproject.toml` and locked in `uv.lock`. Update dependencies with `uv lock`.
 
 ### 2. Configure Git Hooks (pre-commit)
 We use `pre-commit` to verify code layout, trailing whitespace, and formatting automatically during commit preparation:
