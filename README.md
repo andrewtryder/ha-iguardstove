@@ -25,11 +25,13 @@ See iGuardStove activity and stove status in Home Assistant, with optional contr
 
 ## Requirements and compatibility
 
-You need Home Assistant **2026.9.0 or newer**, HACS, an active iGuardFire account, at least one stove visible in its management portal, and internet access to `manage.iguardfire.com`. The integration signs in to the portal; iGuardFire does not currently provide a public smart-home API.
+You need Home Assistant **2026.9.0 or newer**, HACS (or the built-in Home Assistant Marketplace in **2026.11+**), an active iGuardFire account, at least one stove visible in its management portal, and internet access to `manage.iguardfire.com`. The integration signs in to the portal; iGuardFire does not currently provide a public smart-home API.
 
-## Install with HACS
+## Install with HACS or Home Assistant Marketplace
 
-1. In HACS, add `https://github.com/andrewtryder/ha-iguardstove` as a custom repository in the **Integration** category, or use the HACS badge above.
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-iguardstove&category=integration)
+
+1. Click the **Open your Home Assistant instance** button above (backwards compatible: opens **HACS** on earlier versions and the built-in **Home Assistant Marketplace** on **2026.11+**), or manually add `https://github.com/andrewtryder/ha-iguardstove` as a custom repository in the **Integration** category.
 2. Install **iGuardStove** and restart Home Assistant.
 
 For manual installation, copy `custom_components/iguardstove` from a release into your Home Assistant configuration's `custom_components` directory and restart.
